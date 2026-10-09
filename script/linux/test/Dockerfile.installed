@@ -1,0 +1,31 @@
+# syntax=docker/dockerfile:1
+# Installed-package E2E image for the GitHub Desktop Linux port (T11).
+# Stage `installed`: a CLEAN ubuntu:24.04 with only the .deb installed via apt, so
+# apt's dependency resolution is what the package alone provides.
+# Stage `e2e`: adds xvfb/node and a non-root user on top; test tooling comes only after the install.
+# Build context must contain the .deb:
+#   script/linux/test/run-installed-e2e.sh does this for you.
+FROM ubuntu:24.04 AS installed
+ENV DEBIAN_FRONTEND=noninteractive
+COPY GitHubDesktop-linux-amd64-*.deb /tmp/
+RUN apt-get update \
+ && apt-get install -y ./tmp/GitHubDesktop-linux-amd64-*.deb 2>&1 | tee /var/log/gd-apt-install.log \
+ && rm -rf /var/lib/apt/lists/* /tmp/*.deb
+
+FROM installed AS e2e
+ARG NODE_VERSION=24.15.0
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    xvfb xauth curl ca-certificates xz-utils git \
+ && rm -rf /var/lib/apt/lists/*
+RUN curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" -o /tmp/node.tar.xz \
+ && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 \
+ && rm /tmp/node.tar.xz
+RUN printf '#!/bin/sh\nexec node /work/vendor/yarn-1.21.1.js "$@"\n' > /usr/local/bin/yarn && chmod +x /usr/local/bin/yarn
+RUN mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix
+# ubuntu:24.04 ships an `ubuntu` user at uid 1000; replace it so file ownership matches the
+# builder volumes (uid 1000) used by script/linux/run.sh.
+RUN userdel -r ubuntu && useradd -m -u 1000 -s /bin/bash tester
+USER tester
+ENV HOME=/home/tester
+WORKDIR /work
+CMD ["bash"]
