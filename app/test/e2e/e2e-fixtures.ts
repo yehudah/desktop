@@ -73,14 +73,42 @@ const e2eAppExecutablePath =
 // on Linux the app has to be launched with --no-sandbox.
 const sandboxArgs = process.platform === 'linux' ? ['--no-sandbox'] : []
 
-function getE2ELaunchOptions() {
+/**
+ * When DESKTOP_E2E_APP_PATH is set the suite must run against exactly that
+ * binary (e.g. an installed package); fail loudly if it is not usable rather
+ * than silently falling back to the staged build.
+ */
+export function assertInstalledAppPath() {
+  if (installedAppExecutablePath === undefined) {
+    return
+  }
+
+  if (installedAppExecutablePath === '') {
+    throw new Error('DESKTOP_E2E_APP_PATH is set but empty.')
+  }
+
+  try {
+    fs.accessSync(installedAppExecutablePath, fs.constants.X_OK)
+  } catch {
+    throw new Error(
+      `DESKTOP_E2E_APP_PATH (${installedAppExecutablePath}) does not exist or is not executable.`
+    )
+  }
+}
+
+export function getE2ELaunchOptions(
+  repoPath = smokeRepoPath,
+  dataDir = userDataDir
+) {
+  assertInstalledAppPath()
+
   if (installedAppExecutablePath !== undefined) {
     return {
       executablePath: installedAppExecutablePath,
       args: [
         ...sandboxArgs,
-        `--user-data-dir=${userDataDir}`,
-        `--cli-open=${smokeRepoPath}`,
+        `--user-data-dir=${dataDir}`,
+        `--cli-open=${repoPath}`,
       ],
       missingPath: installedAppExecutablePath,
     }
@@ -91,8 +119,8 @@ function getE2ELaunchOptions() {
       args: [
         ...sandboxArgs,
         unpackagedAppEntryPoint,
-        `--user-data-dir=${userDataDir}`,
-        `--cli-open=${smokeRepoPath}`,
+        `--user-data-dir=${dataDir}`,
+        `--cli-open=${repoPath}`,
       ],
       missingPath: unpackagedAppEntryPoint,
     }
@@ -102,8 +130,8 @@ function getE2ELaunchOptions() {
     executablePath: e2eAppExecutablePath,
     args: [
       ...sandboxArgs,
-      `--user-data-dir=${userDataDir}`,
-      `--cli-open=${smokeRepoPath}`,
+      `--user-data-dir=${dataDir}`,
+      `--cli-open=${repoPath}`,
     ],
     missingPath: e2eAppExecutablePath,
   }
