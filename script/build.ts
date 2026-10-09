@@ -56,6 +56,7 @@ import { verifyInjectedSassVariables } from './validate-sass/validate-all'
 import { join } from 'path'
 import assert from 'assert'
 import { getSHA } from '../app/git-info'
+import { writeLinuxBuildSha } from './linux-build-sha'
 
 const isPublishableBuild = isPublishable()
 const isDevelopmentBuild = getChannel() === 'development'
@@ -128,10 +129,7 @@ verifyInjectedSassVariables(outRoot)
     // payload was built from.
     if (process.platform === 'linux' && !shouldSkipPackaging) {
       for (const appPath of appPaths) {
-        writeFileSync(
-          path.join(appPath, 'resources', 'app', 'linux-build-sha'),
-          `${getSHA()}\n`
-        )
+        writeLinuxBuildSha(appPath, getSHA())
       }
     }
     return appPaths
