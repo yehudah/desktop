@@ -18,6 +18,7 @@ import {
   getDistArchitecture,
   getIconDirectory,
 } from './dist-info'
+import { packageDebian } from './package-linux'
 import { isGitHubActions } from './build-platforms'
 import { existsSync, rmSync, writeFileSync } from 'fs'
 import { getVersion } from '../app/package-info'
@@ -40,6 +41,8 @@ if (process.platform === 'darwin') {
   packageOSX()
 } else if (process.platform === 'win32') {
   packageWindows()
+} else if (process.platform === 'linux') {
+  packageLinux()
 } else {
   console.error(`I don't know how to package for ${process.platform} :(`)
   process.exit(1)
@@ -154,6 +157,16 @@ function packageWindows() {
         await rename(from, to)
       }
     })
+    .catch(e => {
+      console.error(`Error packaging: ${e}`)
+      process.exit(1)
+    })
+}
+
+function packageLinux() {
+  console.log('Packaging for Linux…')
+  packageDebian()
+    .then(debPath => console.log(`Created ${debPath}`))
     .catch(e => {
       console.error(`Error packaging: ${e}`)
       process.exit(1)

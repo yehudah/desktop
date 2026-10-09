@@ -54,6 +54,7 @@ import { updateLicenseDump } from './licenses/update-license-dump'
 import { verifyInjectedSassVariables } from './validate-sass/validate-all'
 import { join } from 'path'
 import assert from 'assert'
+import { getSHA } from '../app/git-info'
 
 const isPublishableBuild = isPublishable()
 const isDevelopmentBuild = getChannel() === 'development'
@@ -120,6 +121,19 @@ verifyInjectedSassVariables(outRoot)
 
     console.log('Packaging…')
     return packageApp()
+  })
+  .then(appPaths => {
+    // Linux artifacts (deb, AppImage) are all checked against the commit the
+    // payload was built from.
+    if (process.platform === 'linux' && !shouldSkipPackaging) {
+      for (const appPath of appPaths) {
+        writeFileSync(
+          path.join(appPath, 'resources', 'app', 'linux-build-sha'),
+          `${getSHA()}\n`
+        )
+      }
+    }
+    return appPaths
   })
   .catch(err => {
     console.error(err)
