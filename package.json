@@ -155,6 +155,7 @@
     "@types/webpack-hot-middleware": "^2.25.9",
     "diff": "^8.0.3",
     "electron": "42.0.1",
+    "electron-builder": "26.0.12",
     "electron-installer-debian": "4.0.0",
     "electron-winstaller": "^5.0.0",
     "eslint-plugin-github": "^5.1.5",

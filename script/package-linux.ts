@@ -1,5 +1,6 @@
-import { join, resolve } from 'path'
-import { existsSync } from 'fs'
+import { basename, join, resolve } from 'path'
+import { createHash } from 'crypto'
+import { closeSync, existsSync, openSync, readSync, writeFileSync } from 'fs'
 import { getReplacements } from '../app/app-info'
 import { getProductName, getVersion } from '../app/package-info'
 import {
@@ -107,4 +108,81 @@ export async function packageDebian(): Promise<string> {
   )
 
   return dest
+}
+
+export interface IAppImageParams {
+  readonly version: string
+  readonly productName: string
+  readonly executableName: string
+  readonly output: string
+  readonly devSecrets: boolean
+}
+
+/** electron-builder configuration for an AppImage of a prepackaged payload. */
+export function getAppImageBuilderConfig(p: IAppImageParams) {
+  return {
+    appId: 'com.github.GitHubClient',
+    productName: p.productName,
+    artifactName: `GitHubDesktop-linux-x86_64-${p.version}.\${ext}`,
+    npmRebuild: false,
+    publish: null,
+    directories: { output: p.output },
+    linux: {
+      target: ['AppImage'],
+      category: 'Development',
+      executableName: p.executableName,
+      mimeTypes: getDebianMimeTypes(p.devSecrets),
+      icon: iconPath,
+    },
+  }
+}
+
+export function getAppImagePackagePath(output: string, version: string) {
+  return join(output, `GitHubDesktop-linux-x86_64-${version}.AppImage`)
+}
+
+/** Builds the AppImage from the same staged payload the .deb is built from. */
+export async function packageAppImage(): Promise<string> {
+  const version = getVersion()
+  const output = getDistRoot()
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { build, Platform, Arch } = require('electron-builder')
+
+  await build({
+    targets: Platform.LINUX.createTarget('appimage', Arch.x64),
+    prepackaged: getDistPath(),
+    publish: 'never',
+    config: getAppImageBuilderConfig({
+      version,
+      productName: getProductName(),
+      executableName: getExecutableName(),
+      output,
+      devSecrets: getReplacements().__DEV_SECRETS__,
+    }),
+  })
+
+  const dest = getAppImagePackagePath(output, version)
+  if (!existsSync(dest)) {
+    throw new Error(`Expected ${dest} to exist`)
+  }
+  return dest
+}
+
+/** Writes `<file>.sha256` in `sha256sum` format and returns its path. */
+export function writeSha256File(file: string): string {
+  const sha = createHash('sha256')
+  const fd = openSync(file, 'r')
+  try {
+    const buf = Buffer.alloc(1024 * 1024)
+    let n: number
+    while ((n = readSync(fd, buf, 0, buf.length, null)) > 0) {
+      sha.update(buf.subarray(0, n))
+    }
+  } finally {
+    closeSync(fd)
+  }
+  const hash = sha.digest('hex')
+  const out = `${file}.sha256`
+  writeFileSync(out, `${hash}  ${basename(file)}\n`)
+  return out
 }

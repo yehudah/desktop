@@ -18,7 +18,11 @@ import {
   getDistArchitecture,
   getIconDirectory,
 } from './dist-info'
-import { packageDebian } from './package-linux'
+import {
+  packageAppImage,
+  packageDebian,
+  writeSha256File,
+} from './package-linux'
 import { isGitHubActions } from './build-platforms'
 import { existsSync, rmSync, writeFileSync } from 'fs'
 import { getVersion } from '../app/package-info'
@@ -166,7 +170,14 @@ function packageWindows() {
 function packageLinux() {
   console.log('Packaging for Linux…')
   packageDebian()
-    .then(debPath => console.log(`Created ${debPath}`))
+    .then(async debPath => {
+      console.log(`Created ${debPath}`)
+      const appImagePath = await packageAppImage()
+      console.log(`Created ${appImagePath}`)
+      for (const f of [debPath, appImagePath]) {
+        console.log(`Created ${writeSha256File(f)}`)
+      }
+    })
     .catch(e => {
       console.error(`Error packaging: ${e}`)
       process.exit(1)

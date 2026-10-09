@@ -12,8 +12,12 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import {
   getDebianInstallerOptions,
+  getAppImageBuilderConfig,
+  getAppImagePackagePath,
   getDebianMimeTypes,
+  IAppImageParams,
   IDebianInstallerParams,
+  writeSha256File,
 } from '../../package-linux'
 
 describe('getDebianMimeTypes', () => {
@@ -206,5 +210,65 @@ describe('electron-installer-debian output for our options', () => {
     )
     assert.match(control, /^Package: github-desktop$/m)
     assert.match(control, /^Depends: .*libsecret-1-0/m)
+  })
+})
+
+describe('getAppImageBuilderConfig', () => {
+  const p: IAppImageParams = {
+    version: '1.2.3',
+    productName: 'GitHub Desktop',
+    executableName: 'github-desktop',
+    output: '/dist',
+    devSecrets: false,
+  }
+  const config = getAppImageBuilderConfig(p)
+
+  it('builds only an AppImage without rebuilding native modules', () => {
+    assert.deepStrictEqual(config.linux.target, ['AppImage'])
+    assert.strictEqual(config.npmRebuild, false)
+    assert.strictEqual(config.directories.output, '/dist')
+  })
+
+  it('names the artifact GitHubDesktop-linux-x86_64-<version>.AppImage', () => {
+    assert.strictEqual(
+      config.artifactName,
+      'GitHubDesktop-linux-x86_64-1.2.3.${ext}'
+    )
+    assert.strictEqual(
+      getAppImagePackagePath('/dist', '1.2.3'),
+      '/dist/GitHubDesktop-linux-x86_64-1.2.3.AppImage'
+    )
+  })
+
+  it('shares the .deb MIME types and executable name', () => {
+    assert.deepStrictEqual(config.linux.mimeTypes, getDebianMimeTypes(false))
+    assert.strictEqual(config.linux.executableName, 'github-desktop')
+    assert.deepStrictEqual(
+      getAppImageBuilderConfig({ ...p, devSecrets: true }).linux.mimeTypes,
+      getDebianMimeTypes(true)
+    )
+  })
+
+  it('does not publish', () => {
+    assert.strictEqual(config.publish, null)
+  })
+})
+
+describe('writeSha256File', () => {
+  let dir: string
+  before(() => {
+    dir = mkdtempSync(join(tmpdir(), 'sha256-test-'))
+  })
+  after(() => rmSync(dir, { recursive: true, force: true }))
+
+  it('writes "<hex>  <basename>" next to the artifact', () => {
+    const f = join(dir, 'a.bin')
+    writeFileSync(f, 'hello')
+    const out = writeSha256File(f)
+    assert.strictEqual(out, `${f}.sha256`)
+    assert.strictEqual(
+      readFileSync(out, 'utf8'),
+      '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824  a.bin\n'
+    )
   })
 })
