@@ -36,6 +36,7 @@ import {
   getDistArchitecture,
   getDistRoot,
   getExecutableName,
+  getExtraResources,
   getIconDirectory,
   isPublishable,
 } from './dist-info'
@@ -185,12 +186,9 @@ function packageApp() {
   }
 
   const iconPath = getIconDirectory()
-  const assetsCarPath = join(iconPath, 'Assets.car')
-  if (process.platform === 'darwin') {
-    assert(
-      existsSync(assetsCarPath),
-      `Unable to find Assets.car at ${assetsCarPath}`
-    )
+  const extraResource = getExtraResources()
+  for (const resource of extraResource) {
+    assert(existsSync(resource), `Unable to find ${resource}`)
   }
 
   return packager({
@@ -205,7 +203,7 @@ function packageApp() {
       iconPath,
       process.platform === 'darwin' ? 'icon-logo-legacy.icns' : 'icon-logo'
     ),
-    extraResource: process.platform === 'darwin' ? [assetsCarPath] : [],
+    extraResource,
     dir: outRoot,
     overwrite: true,
     tmpdir: false,

@@ -158,6 +158,13 @@ export function getIconDirectory() {
   return join(projectRoot, 'app', 'static', 'logos', devOrProd)
 }
 
+/** Files packaged into resources/ next to the app; Assets.car is macOS-only */
+export function getExtraResources() {
+  return process.platform === 'darwin'
+    ? [join(getIconDirectory(), 'Assets.car')]
+    : []
+}
+
 export function getChannelFromReleaseBranch(): string {
   const branchName = process.env.GITHUB_HEAD_REF ?? ''
 

@@ -83,9 +83,61 @@ describe('findAppURLInArgs', () => {
     )
   })
 
+  it('ignores other urls that embed a registered url', () => {
+    const args = [
+      exe,
+      'https://example.com/?next=x-github-client://oauth?code=1&state=2',
+      'file:///tmp/x-github-client://openRepo/a',
+    ]
+    assert.equal(findAppURLInArgs(args, protocols), null)
+  })
+
   it('returns the first matching url', () => {
     const first = 'x-github-client://oauth?code=1&state=2'
     const second = 'x-github-client://oauth?code=3&state=4'
     assert.equal(findAppURLInArgs([exe, first, second], protocols), first)
+  })
+
+  it('returns the first matching url across different schemes', () => {
+    const first = 'x-github-desktop-dev-auth://oauth?code=1&state=2'
+    const second = 'x-github-client://openRepo/https://github.com/a/b'
+    assert.equal(findAppURLInArgs([exe, first, second], protocols), first)
+  })
+
+  it('returns null for empty argv', () => {
+    assert.equal(findAppURLInArgs([], protocols), null)
+  })
+
+  it('finds the url with switches after it', () => {
+    const url = 'x-github-client://openRepo/https://github.com/a/b'
+    const args = [exe, url, '--no-sandbox', '--enable-logging']
+    assert.equal(findAppURLInArgs(args, protocols), url)
+  })
+
+  it('skips an unparseable url and keeps looking', () => {
+    const url = 'x-github-client://oauth?code=1&state=2'
+    const bad = 'x-github-client://[not-a-host'
+    assert.equal(findAppURLInArgs([exe, bad], protocols), null)
+    assert.equal(findAppURLInArgs([exe, bad, url], protocols), url)
+  })
+
+  it('does not strip unbalanced quotes', () => {
+    const url = 'x-github-client://oauth?code=1&state=2'
+    assert.equal(findAppURLInArgs([exe, `"${url}'`], protocols), null)
+  })
+
+  it('matches only the auth scheme in the given protocol set', () => {
+    const devAuth = 'x-github-desktop-dev-auth://oauth?code=1&state=2'
+    const auth = 'x-github-desktop-auth://oauth?code=1&state=2'
+
+    // Built with the embedded dev secrets (__DEV_SECRETS__)
+    const devProtocols = ['x-github-client', 'x-github-desktop-dev-auth']
+    assert.equal(findAppURLInArgs([exe, devAuth], devProtocols), devAuth)
+    assert.equal(findAppURLInArgs([exe, auth], devProtocols), null)
+
+    // Built with real OAuth secrets
+    const prodProtocols = ['x-github-client', 'x-github-desktop-auth']
+    assert.equal(findAppURLInArgs([exe, auth], prodProtocols), auth)
+    assert.equal(findAppURLInArgs([exe, devAuth], prodProtocols), null)
   })
 })
