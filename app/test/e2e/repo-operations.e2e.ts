@@ -226,9 +226,19 @@ test.describe('Repository operations', () => {
     git(otherClone, 'push', 'origin', `HEAD:${mainBranch}`)
     const upstreamHead = git(otherClone, 'rev-parse', 'HEAD')
 
+    // Desktop may auto-fetch before we click: the button then already reads
+    // 'Pull origin' and the ref is updated. Accept either and assert on git.
     const fetchButton = page.locator('.push-pull-button button').first()
-    await expect(fetchButton).toContainText('Fetch origin', { timeout: 20000 })
-    await fetchButton.click()
+    await expect(fetchButton).toContainText(/Fetch origin|Pull origin/, {
+      timeout: 20000,
+    })
+    // Only ever click a button that currently reads 'Fetch origin', never a
+    // 'Pull origin' one (that would fast-forward the checked-out branch).
+    await page
+      .locator('.push-pull-button button', { hasText: 'Fetch origin' })
+      .first()
+      .click({ timeout: 3000 })
+      .catch(() => {})
 
     await expect
       .poll(() => git(repoPath, 'rev-parse', `origin/${mainBranch}`), {
