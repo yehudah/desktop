@@ -69,11 +69,19 @@ function getPackagedAppExecutablePath() {
 const e2eAppExecutablePath =
   installedAppExecutablePath ?? getPackagedAppExecutablePath()
 
+// KNOWN GAP (until T13): the container build has no setuid chrome-sandbox, so
+// on Linux the app has to be launched with --no-sandbox.
+const sandboxArgs = process.platform === 'linux' ? ['--no-sandbox'] : []
+
 function getE2ELaunchOptions() {
   if (installedAppExecutablePath !== undefined) {
     return {
       executablePath: installedAppExecutablePath,
-      args: [`--user-data-dir=${userDataDir}`, `--cli-open=${smokeRepoPath}`],
+      args: [
+        ...sandboxArgs,
+        `--user-data-dir=${userDataDir}`,
+        `--cli-open=${smokeRepoPath}`,
+      ],
       missingPath: installedAppExecutablePath,
     }
   }
@@ -81,6 +89,7 @@ function getE2ELaunchOptions() {
   if (e2eAppMode === 'unpackaged') {
     return {
       args: [
+        ...sandboxArgs,
         unpackagedAppEntryPoint,
         `--user-data-dir=${userDataDir}`,
         `--cli-open=${smokeRepoPath}`,
@@ -91,7 +100,11 @@ function getE2ELaunchOptions() {
 
   return {
     executablePath: e2eAppExecutablePath,
-    args: [`--user-data-dir=${userDataDir}`, `--cli-open=${smokeRepoPath}`],
+    args: [
+      ...sandboxArgs,
+      `--user-data-dir=${userDataDir}`,
+      `--cli-open=${smokeRepoPath}`,
+    ],
     missingPath: e2eAppExecutablePath,
   }
 }
@@ -188,10 +201,16 @@ export const test = base.extend<{}, E2EFixtures>({
           SSH_AUTH_SOCK: '',
           GIT_SSH_COMMAND: 'false',
         },
-        recordVideo: {
-          dir: path.join(projectRoot, 'playwright-videos'),
-          size: { width: 1280, height: 800 },
-        },
+        // Video recording needs Playwright's ffmpeg, which the Linux container
+        // doesn't have; launching with recordVideo hangs there.
+        ...(process.platform === 'linux'
+          ? {}
+          : {
+              recordVideo: {
+                dir: path.join(projectRoot, 'playwright-videos'),
+                size: { width: 1280, height: 800 },
+              },
+            }),
         timeout: 30000,
       })
 
