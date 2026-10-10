@@ -1,11 +1,13 @@
 # syntax=docker/dockerfile:1
-# Installed-package E2E image for the GitHub Desktop Linux port (T11).
-# Stage `installed`: a CLEAN ubuntu:24.04 with only the .deb installed via apt, so
+# Installed-package E2E image for the GitHub Desktop Linux port (T11, T12).
+# BASE_IMAGE selects the distro (ubuntu:24.04 default, debian:12).
+# Stage `installed`: a CLEAN BASE_IMAGE with only the .deb installed via apt, so
 # apt's dependency resolution is what the package alone provides.
 # Stage `e2e`: adds xvfb/node and a non-root user on top; test tooling comes only after the install.
 # Build context must contain the .deb:
 #   script/linux/test/run-installed-e2e.sh does this for you.
-FROM ubuntu:24.04 AS installed
+ARG BASE_IMAGE=ubuntu:24.04
+FROM ${BASE_IMAGE} AS installed
 ENV DEBIAN_FRONTEND=noninteractive
 COPY GitHubDesktop-linux-amd64-*.deb /tmp/
 RUN apt-get update \
@@ -22,9 +24,9 @@ RUN curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-l
  && rm /tmp/node.tar.xz
 RUN printf '#!/bin/sh\nexec node /work/vendor/yarn-1.21.1.js "$@"\n' > /usr/local/bin/yarn && chmod +x /usr/local/bin/yarn
 RUN mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix
-# ubuntu:24.04 ships an `ubuntu` user at uid 1000; replace it so file ownership matches the
+# ubuntu:24.04 ships an `ubuntu` user at uid 1000 (debian does not); replace it so file ownership matches the
 # builder volumes (uid 1000) used by script/linux/run.sh.
-RUN userdel -r ubuntu && useradd -m -u 1000 -s /bin/bash tester
+RUN (getent passwd ubuntu >/dev/null && userdel -r ubuntu || true) && useradd -m -u 1000 -s /bin/bash tester
 USER tester
 ENV HOME=/home/tester
 WORKDIR /work
