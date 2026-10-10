@@ -15,12 +15,32 @@ const cases = [
 async function roundtrip() {
   for (const [service, account] of cases) {
     const secret = `ghp_test_${Date.now()}`
-    assert.strictEqual(await keytar.getPassword(service, account), null, 'precondition: absent')
+    assert.strictEqual(
+      await keytar.getPassword(service, account),
+      null,
+      'precondition: absent'
+    )
     await keytar.setPassword(service, account, secret)
-    assert.strictEqual(await keytar.getPassword(service, account), secret, 'get after set')
-    assert.strictEqual(await keytar.deletePassword(service, account), true, 'delete returns true')
-    assert.strictEqual(await keytar.getPassword(service, account), null, 'absent after delete')
-    assert.strictEqual(await keytar.deletePassword(service, account), false, 'second delete false')
+    assert.strictEqual(
+      await keytar.getPassword(service, account),
+      secret,
+      'get after set'
+    )
+    assert.strictEqual(
+      await keytar.deletePassword(service, account),
+      true,
+      'delete returns true'
+    )
+    assert.strictEqual(
+      await keytar.getPassword(service, account),
+      null,
+      'absent after delete'
+    )
+    assert.strictEqual(
+      await keytar.deletePassword(service, account),
+      false,
+      'second delete false'
+    )
     console.log(`ok: ${service} / ${account}`)
   }
 }

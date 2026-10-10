@@ -70,6 +70,10 @@ export function getDebianInstallerOptions(p: IDebianInstallerParams) {
     homepage: 'https://desktop.github.com/',
     categories: ['Development', 'RevisionControl'],
     mimeType: getDebianMimeTypes(p.devSecrets),
+    // Added to electron-installer-debian's defaults. The bundled git needs
+    // glibc 2.34 and its HTTPS remote helpers link against libcurl.so.4
+    // (libcurl4t64 provides libcurl4 on Ubuntu 24.04).
+    depends: ['libc6 (>= 2.34)', 'libcurl4'],
     maintainer: 'GitHub Desktop <opensource+desktop@github.com>',
     icon: { '512x512': iconPath },
     scripts: debianScripts,

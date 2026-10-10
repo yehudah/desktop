@@ -14,7 +14,7 @@ set -u
 desktop=/usr/share/applications/github-desktop.desktop
 schemes="x-github-client x-github-desktop-dev-auth"
 unset XDG_CONFIG_HOME XDG_DATA_HOME
-export XDG_CURRENT_DESKTOP= DE=generic
+export XDG_CURRENT_DESKTOP='' DE=generic
 fail=0
 ok() { echo "PASS: $*"; }
 bad() { echo "FAIL: $*"; fail=1; }

@@ -116,6 +116,10 @@ describe('getDebianInstallerOptions', () => {
     )
   })
 
+  it('depends on the glibc and libcurl the bundled git needs', () => {
+    assert.deepStrictEqual(options.depends, ['libc6 (>= 2.34)', 'libcurl4'])
+  })
+
   it('sets the control file metadata', () => {
     assert.strictEqual(options.section, 'devel')
     assert.strictEqual(options.priority, 'optional')
@@ -210,6 +214,8 @@ describe('electron-installer-debian output for our options', () => {
     )
     assert.match(control, /^Package: github-desktop$/m)
     assert.match(control, /^Depends: .*libsecret-1-0/m)
+    assert.match(control, /^Depends: .*libc6 \(>= 2\.34\)/m)
+    assert.match(control, /^Depends: .*libcurl4(,|$)/m)
   })
 })
 

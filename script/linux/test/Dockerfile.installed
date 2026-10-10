@@ -13,6 +13,11 @@ COPY GitHubDesktop-linux-amd64-*.deb /tmp/
 RUN apt-get update \
  && apt-get install -y ./tmp/GitHubDesktop-linux-amd64-*.deb 2>&1 | tee /var/log/gd-apt-install.log \
  && rm -rf /var/lib/apt/lists/* /tmp/*.deb
+# The package's Depends alone must satisfy the shared libraries its binaries link against (ldd; not dlopen).
+RUN missing=$(find /usr/lib/github-desktop -type f \( -perm -u+x -o -name '*.so*' -o -name '*.node' \) \
+      -exec sh -c 'ldd "$1" 2>/dev/null | grep "not found" | sed "s|^|$1:|"' _ {} \;) \
+ && if [ -n "$missing" ]; then echo "$missing"; echo "FAIL: unresolved shared libraries"; exit 1; fi \
+ && echo "OK: no unresolved shared libraries under /usr/lib/github-desktop"
 
 FROM installed AS e2e
 ARG NODE_VERSION=24.15.0

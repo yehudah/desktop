@@ -69,8 +69,9 @@ function getPackagedAppExecutablePath() {
 const e2eAppExecutablePath =
   installedAppExecutablePath ?? getPackagedAppExecutablePath()
 
-// KNOWN GAP (until T13): the container build has no setuid chrome-sandbox, so
-// on Linux the app has to be launched with --no-sandbox.
+// Docker's default seccomp profile and capabilities stop Chromium's sandbox
+// from starting, so container E2E on Linux runs with --no-sandbox. Sandboxed
+// launch is checked separately (script/linux/test/check-sandbox-launch.sh).
 const sandboxArgs = process.platform === 'linux' ? ['--no-sandbox'] : []
 
 /**

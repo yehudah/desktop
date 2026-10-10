@@ -81,6 +81,10 @@ function makeModel(
   }
 }
 
+// The model picker's rows can show up only after a deferred re-render, which
+// misses waitFor's 1s default when the full unit suite saturates the CPU.
+const popoverTimeout = 5000
+
 const defaultModel = makeModel({
   id: DefaultCopilotModel,
   name: 'Auto',
@@ -889,7 +893,9 @@ describe('CopilotPreferences', () => {
 
     fireEvent.click(modelPickerButton)
 
-    await waitFor(() => assert.ok(screen.getByText('Claude Sonnet (2x)')))
+    await waitFor(() => assert.ok(screen.getByText('Claude Sonnet (2x)')), {
+      timeout: popoverTimeout,
+    })
     assert.strictEqual(modelPickerButton.getAttribute('aria-expanded'), 'true')
 
     const controlledContentId = modelPickerButton.getAttribute('aria-controls')
@@ -928,7 +934,9 @@ describe('CopilotPreferences', () => {
 
     fireEvent.click(getModelPickerButton(view.container))
 
-    await waitFor(() => assert.ok(screen.getByText('Ollama')))
+    await waitFor(() => assert.ok(screen.getByText('Ollama')), {
+      timeout: popoverTimeout,
+    })
     assert.strictEqual(screen.queryByText('GitHub Copilot'), null)
   })
 
@@ -1148,7 +1156,9 @@ describe('CopilotPreferences', () => {
     )
 
     fireEvent.click(getModelPickerButton(view.container))
-    await waitFor(() => assert.ok(screen.getByText('Claude Sonnet (2x)')))
+    await waitFor(() => assert.ok(screen.getByText('Claude Sonnet (2x)')), {
+      timeout: popoverTimeout,
+    })
     fireEvent.click(screen.getByText('Claude Sonnet (2x)'))
 
     assert.deepStrictEqual(changed, [
@@ -1175,11 +1185,14 @@ describe('CopilotPreferences', () => {
 
     fireEvent.click(getModelPickerButton(view.container))
 
-    const defaultModelItem = await waitFor(() => {
-      const popover = document.querySelector('.popover-dropdown-content')
-      assert.ok(popover instanceof HTMLElement)
-      return within(popover).getByText('Auto (default)')
-    })
+    const defaultModelItem = await waitFor(
+      () => {
+        const popover = document.querySelector('.popover-dropdown-content')
+        assert.ok(popover instanceof HTMLElement)
+        return within(popover).getByText('Auto (default)')
+      },
+      { timeout: popoverTimeout }
+    )
 
     fireEvent.click(defaultModelItem)
 
@@ -1324,7 +1337,9 @@ describe('CopilotPreferences', () => {
       assert.ok(conflictPickerButton instanceof HTMLButtonElement)
 
       fireEvent.click(conflictPickerButton)
-      await waitFor(() => assert.ok(screen.getByText('Claude Sonnet (2x)')))
+      await waitFor(() => assert.ok(screen.getByText('Claude Sonnet (2x)')), {
+        timeout: popoverTimeout,
+      })
       fireEvent.click(screen.getByText('Claude Sonnet (2x)'))
 
       assert.deepStrictEqual(changed, [
