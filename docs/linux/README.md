@@ -160,6 +160,21 @@ triggers the PR's `synchronize` event; Linux CI listens for it on PRs targeting
 `linux`. Pushes using `GITHUB_TOKEN` do not have the same triggering behavior. See
 [GitHub's event rules](https://docs.github.com/en/actions/concepts/security/github_token).
 
+Conflicts seen so far (release-3.6.7, PR #7) and how they were resolved:
+
+- `script/build.ts` imports: upstream adds imports next to the Linux ones
+  (`getSHA`, `writeLinuxBuildSha`). Keep both sides.
+- `yarn.lock`: Linux adds `electron-builder` and `electron-installer-debian` to
+  `package.json`, so upstream dependency bumps conflict with them. Don't edit the
+  lockfile by hand or take one side. Leave the conflict markers in place and run
+  `script/linux/run.sh yarn install` (yarn 1 merges a conflicted lockfile
+  itself). Then run it again with `--ignore-scripts` and check that `yarn.lock`
+  doesn't change, because Linux CI fails on a lockfile that `yarn` rewrites.
+- Then run `yarn lint` and `yarn build:prod && yarn run package` in the
+  container. Upstream changes to packaging (for example `@electron/packager`
+  majors, or new per-platform runtimes copied in `script/build.ts`) only break at
+  package time.
+
 Repeated runs leave an existing open sync PR and its branch untouched. If pushing
 succeeded but PR creation failed, the next run reuses the branch, preserves any
 maintainer commits, and retries PR creation. A branch with no PR that was deleted
