@@ -1,0 +1,80 @@
+name: Tag Linux release
+
+# Tags release-<upstream version>-linux<N> on linux; the tag push runs CI (Linux
+# port), which builds the .deb and AppImage and attaches them to a draft release.
+# - Merging an upstream-sync/release-X.Y.Z PR tags its merge commit (linux1).
+# - Manual dispatch tags the tip of linux with the next N (Linux-only release).
+# The tag is pushed with the sync App's token: tags pushed with GITHUB_TOKEN do
+# not trigger other workflows.
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - linux
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-release-tag
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    name: Tag release
+    if: >-
+      github.repository == 'yehudah/desktop' && (github.event_name ==
+      'workflow_dispatch' || (github.event.pull_request.merged &&
+      startsWith(github.event.pull_request.head.ref, 'upstream-sync/release-')))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_REPO: yehudah/desktop
+    steps:
+      - name: Create installation token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          client-id: ${{ vars.UPSTREAM_SYNC_APP_CLIENT_ID }}
+          private-key: ${{ secrets.UPSTREAM_SYNC_APP_PRIVATE_KEY }}
+          owner: yehudah
+          repositories: desktop
+          permission-contents: write
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Manual releases always come from linux, whatever ref was dispatched.
+          ref:
+            ${{ github.event.pull_request.merge_commit_sha || 'refs/heads/linux'
+            }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Choose tag
+        id: tag
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          git fetch --tags --force origin
+          expected=${HEAD_REF#upstream-sync/release-}
+          tag=$(script/linux/next-release-tag.sh "$expected")
+          if [ -z "$tag" ]; then
+            echo "::notice::$(git rev-parse --short HEAD) already has a Linux release tag."
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Push tag
+        if: steps.tag.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git config credential.helper ''
+          git config --add credential.helper '!gh auth git-credential'
+          git config core.hooksPath /dev/null
+          git tag "$TAG"
+          git push origin "refs/tags/$TAG"
+          echo "Tagged $(git rev-parse --short HEAD) as $TAG; CI (Linux port) builds the draft release." >> "$GITHUB_STEP_SUMMARY"

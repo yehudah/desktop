@@ -185,6 +185,35 @@ fail the run and provide setup/recovery guidance in its summary.
 
 Container-based checks live in `script/linux/test/` (installed `.deb` E2E, AppImage payload E2E, protocol handler, keytar, sandbox, package lifecycle). They need the built `dist/` artifacts and Docker.
 
+## Releases
+
+Releases are tagged `release-X.Y.Z-linuxN`. `X.Y.Z` is the upstream version
+in `app/package.json`. `N` starts at 1 for each upstream version and goes up for
+Linux-only releases on the same base (3.6.7-linux1, 3.6.7-linux2, then
+3.6.8-linux1). The .deb and AppImage are versioned `X.Y.Z-linuxN`, so apt treats
+each Linux-only release as an upgrade. The app's About box still shows the
+upstream version: `app/package.json` is never edited, which keeps upstream
+merges clean.
+
+- **After an upstream sync:** merging an `upstream-sync/release-X.Y.Z` PR runs
+  **Tag Linux release**. It checks that `app/package.json` says `X.Y.Z` and
+  tags the merge commit `release-X.Y.Z-linux1`.
+- **Linux-only release:** merge the fixes into `linux`, then go to **Actions →
+  Tag Linux release → Run workflow**. It tags the tip of `linux` with the next
+  `N`. If the tip already has a Linux release tag, it does nothing.
+
+The tag push runs **CI (Linux port)** on that tag: the full build and tests on
+both runners, then a **draft** release with the ubuntu-22.04 artifacts (lowest
+glibc), `.sha256` files and a link to the upstream release. Install the draft's
+`.deb` and smoke-test it, then edit the release and click **Publish**. If the tag
+build fails, fix it on `linux` and dispatch again; that gives a new `N`. Do not
+move or reuse a tag.
+
+The tagging workflow pushes the tag with the sync App's token, because a tag
+pushed with `GITHUB_TOKEN` would not trigger CI. The tag logic is in
+`script/linux/next-release-tag.sh`, and the version mapping is
+`getLinuxPackageVersion` in `script/package-linux.ts`.
+
 ## Running the sign-in test
 
 Sign-in cannot be automated (it needs your GitHub account and a browser). To check it by hand with the `.deb`:

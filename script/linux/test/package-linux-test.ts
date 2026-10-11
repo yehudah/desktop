@@ -15,6 +15,7 @@ import {
   getAppImageBuilderConfig,
   getAppImagePackagePath,
   getDebianMimeTypes,
+  getLinuxPackageVersion,
   IAppImageParams,
   IDebianInstallerParams,
   writeSha256File,
@@ -83,7 +84,41 @@ const params: IDebianInstallerParams = {
   bin: 'github-desktop',
   productName: 'GitHub Desktop',
   devSecrets: true,
+  version: '1.2.3-linux2',
 }
+
+describe('getLinuxPackageVersion', () => {
+  it('uses the app version for untagged builds', () => {
+    assert.strictEqual(getLinuxPackageVersion('3.6.7', undefined), '3.6.7')
+    assert.strictEqual(getLinuxPackageVersion('3.6.7', ''), '3.6.7')
+  })
+
+  it('appends the Linux revision from the release tag', () => {
+    assert.strictEqual(
+      getLinuxPackageVersion('3.6.7', 'release-3.6.7-linux1'),
+      '3.6.7-linux1'
+    )
+    assert.strictEqual(
+      getLinuxPackageVersion('3.6.7', 'release-3.6.7-linux12'),
+      '3.6.7-linux12'
+    )
+  })
+
+  it('rejects a tag for a different upstream version', () => {
+    assert.throws(() => getLinuxPackageVersion('3.6.7', 'release-3.6.6-linux1'))
+  })
+
+  it('rejects a tag that is not release-X.Y.Z-linuxN', () => {
+    for (const tag of [
+      'release-3.6.7',
+      'release-3.6.7-linux',
+      'release-3.6.7-beta1',
+      'v3.6.7-linux1',
+    ]) {
+      assert.throws(() => getLinuxPackageVersion('3.6.7', tag), tag)
+    }
+  })
+})
 
 describe('getDebianInstallerOptions', () => {
   const options = getDebianInstallerOptions(params)
@@ -100,6 +135,10 @@ describe('getDebianInstallerOptions', () => {
       getDebianInstallerOptions({ ...params, arch: 'arm64' }).arch,
       'arm64'
     )
+  })
+
+  it('passes the package version through', () => {
+    assert.strictEqual(options.version, '1.2.3-linux2')
   })
 
   it('names the package and binary github-desktop', () => {
@@ -213,6 +252,7 @@ describe('electron-installer-debian output for our options', () => {
       'utf8'
     )
     assert.match(control, /^Package: github-desktop$/m)
+    assert.match(control, /^Version: 1\.2\.3-linux2$/m)
     assert.match(control, /^Depends: .*libsecret-1-0/m)
     assert.match(control, /^Depends: .*libc6 \(>= 2\.34\)/m)
     assert.match(control, /^Depends: .*libcurl4(,|$)/m)
