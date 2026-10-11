@@ -97,6 +97,9 @@ jobs:
         env:
           NODE_ENV: production
           RELEASE_CHANNEL: production
+          # On release tags the package version becomes X.Y.Z-linuxN.
+          DESKTOP_LINUX_RELEASE_TAG:
+            ${{ github.ref_type == 'tag' && github.ref_name || '' }}
         run: yarn run package
 
       - name: Verify artifacts carry this commit
@@ -190,6 +193,16 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
         run: |
-          gh release create "$TAG" --draft --title "$TAG" \
-            --notes "Linux build of GitHub Desktop (.deb and AppImage). See docs/linux/README.md." \
-            dist/*
+          set -euo pipefail
+          upstream=${TAG#release-}
+          upstream=${upstream%-linux*}
+          notes="Linux build of GitHub Desktop $upstream (.deb and AppImage).
+
+          Based on upstream [release-$upstream](https://github.com/desktop/desktop/releases/tag/release-$upstream). Install and sign-in notes: [docs/linux/README.md](https://github.com/$GH_REPO/blob/$TAG/docs/linux/README.md)."
+          # A re-run of the tag build replaces the assets of the existing draft.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" --clobber dist/*
+          else
+            gh release create "$TAG" --draft --verify-tag --title "GitHub Desktop $upstream for Linux (${TAG##*-})" \
+              --notes "$notes" dist/*
+          fi

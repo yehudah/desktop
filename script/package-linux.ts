@@ -37,6 +37,46 @@ export function getDebianMimeTypes(devSecrets: boolean) {
   ]
 }
 
+/**
+ * The version the .deb and AppImage are published as.
+ *
+ * Release tags are release-<upstream version>-linux<N> (see
+ * script/linux/next-release-tag.sh); a tag build passes the tag in
+ * DESKTOP_LINUX_RELEASE_TAG. The package version must include N, or a
+ * Linux-only release (linux2) has the same .deb version as linux1 and apt does
+ * not upgrade to it. Untagged builds (PR CI, local) pass undefined.
+ *
+ * @param appVersion upstream's version from app/package.json, e.g. '3.6.7'
+ * @param releaseTag e.g. 'release-3.6.7-linux2', or undefined/'' when untagged
+ * @returns e.g. '3.6.7-linux2' for that tag, appVersion when untagged
+ */
+export function getLinuxPackageVersion(
+  appVersion: string,
+  releaseTag: string | undefined
+): string {
+  if (!releaseTag) {
+    return appVersion
+  }
+  // Fail the tag build rather than publish a mislabeled package.
+  const match = /^release-(\d+\.\d+\.\d+)-linux(\d+)$/.exec(releaseTag)
+  if (match === null) {
+    throw new Error(`Release tag ${releaseTag} is not release-X.Y.Z-linuxN`)
+  }
+  if (match[1] !== appVersion) {
+    throw new Error(
+      `Release tag ${releaseTag} does not match app version ${appVersion}`
+    )
+  }
+  return `${appVersion}-linux${match[2]}`
+}
+
+function getPackageVersion() {
+  return getLinuxPackageVersion(
+    getVersion(),
+    process.env.DESKTOP_LINUX_RELEASE_TAG
+  )
+}
+
 export interface IDebianInstallerParams {
   readonly src: string
   readonly dest: string
@@ -45,6 +85,7 @@ export interface IDebianInstallerParams {
   readonly bin: string
   readonly productName: string
   readonly devSecrets: boolean
+  readonly version: string
 }
 
 /**
@@ -59,6 +100,7 @@ export function getDebianInstallerOptions(p: IDebianInstallerParams) {
     arch: p.arch,
     name: 'github-desktop',
     productName: p.productName,
+    version: p.version,
     bin: p.bin,
     genericName: 'Git Client',
     description: 'Simple collaboration from your desktop',
@@ -82,7 +124,10 @@ export function getDebianInstallerOptions(p: IDebianInstallerParams) {
 
 export function getDebianPackagePath() {
   const arch = getDistArchitecture() === 'arm64' ? 'arm64' : 'amd64'
-  return join(getDistRoot(), `GitHubDesktop-linux-${arch}-${getVersion()}.deb`)
+  return join(
+    getDistRoot(),
+    `GitHubDesktop-linux-${arch}-${getPackageVersion()}.deb`
+  )
 }
 
 /** Builds the .deb from the staged dist/github-desktop-linux-<arch> payload. */
@@ -108,6 +153,7 @@ export async function packageDebian(): Promise<string> {
       bin: getExecutableName(),
       productName: getProductName(),
       devSecrets: getReplacements().__DEV_SECRETS__,
+      version: getPackageVersion(),
     })
   )
 
@@ -147,7 +193,7 @@ export function getAppImagePackagePath(output: string, version: string) {
 
 /** Builds the AppImage from the same staged payload the .deb is built from. */
 export async function packageAppImage(): Promise<string> {
-  const version = getVersion()
+  const version = getPackageVersion()
   const output = getDistRoot()
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { build, Platform, Arch } = require('electron-builder')
