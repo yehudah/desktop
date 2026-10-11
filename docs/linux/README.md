@@ -80,9 +80,108 @@ CI (`.github/workflows/ci-linux.yml`) does this on Ubuntu 22.04 and 24.04 runner
 
 ## Following upstream releases
 
-`linux` is upstream's code plus the Linux changes; `development` mirrors desktop/desktop and gets no commits of its own. `.github/workflows/upstream-sync.yml` runs daily (or by hand from the Actions tab): it fast-forwards `development` to upstream and, when upstream has a newer `release-X.Y.Z` tag than `linux` contains, opens a PR from `upstream-sync/release-X.Y.Z` into `linux`. A clean merge gets CI (Linux port) on the PR; a conflicting one is opened with the conflicting files listed and the commands to resolve it. The workflow never resolves conflicts or merges; merge the PR yourself, with a merge commit, after CI passes.
+`linux` is upstream's code plus the Linux changes; `development` tracks
+`desktop/desktop` and gets no commits of its own. The upstream sync workflow runs
+daily at 06:17 UTC and supports manual dispatch. It fast-forwards `development`
+only when its current tip is an ancestor of upstream's tip. Divergence fails with
+an error; it never force-pushes or discards commits.
 
-It needs a repository secret `UPSTREAM_SYNC_TOKEN`: a fine-grained personal access token for this repository only, with **Contents**, **Pull requests** and **Workflows** set to read and write. `GITHUB_TOKEN` cannot be used, because it cannot push upstream commits that change `.github/workflows`, and PRs it opens do not trigger CI.
+The latest stable `release-X.Y.Z` tag is proposed if its commit is not already an
+ancestor of `linux`. Beta/test and Linux-specific tags are excluded. Clean merges
+are prepared automatically on `upstream-sync/release-X.Y.Z`, with both histories
+preserved, and a PR targets `linux`. Upstream workflow changes are included and
+must be reviewed alongside Linux functionality. Conflicts produce an upstream-only
+branch and a PR listing the files and resolution commands; no conflict is silently
+resolved. The workflow never merges a PR. After Linux CI passes, use **Create a
+merge commit**, not squash/rebase: release ancestry prevents repeated proposals.
+
+### One-time GitHub App setup
+
+1. As `yehudah`, open [Settings → Developer settings → GitHub Apps → New GitHub
+   App](https://github.com/settings/apps/new). Choose a unique name, such as
+   `yehudah-desktop-upstream-sync`, and use `https://github.com/yehudah/desktop` as
+   the homepage. Leave callback/setup URLs empty and user authorization options
+   unchecked. Uncheck **Active** under **Webhook**; this scheduled workflow does
+   not need webhooks or event subscriptions. Select **Only on this account** for
+   where the App can be installed.
+2. Under **Repository permissions**, grant **Contents: Read and write**, **Pull
+   requests: Read and write**, and **Workflows: Read and write** (the token API
+   represents Workflows as `write`). **Metadata: Read-only** is automatically
+   required. Leave every other repository, organization, and account permission
+   at **No access**. Workflows permission is necessary to push commits modifying
+   `.github/workflows`; Actions write is not needed to trigger PR CI. See
+   [GitHub's App permissions](https://docs.github.com/en/rest/authentication/permissions-required-for-github-apps).
+3. Create the App, then open **Install App**, choose `yehudah`, select **Only select
+   repositories**, select **desktop**, and install. Do not choose all repositories.
+4. On the App's **General** page, record its **Client ID** (not its client secret or
+   installation ID). Under **Private keys**, click **Generate a private key**.
+   GitHub downloads a PEM file. Keep it outside the repository, restrict access
+   (`chmod 600 /path/to/downloaded-key.pem`), and keep any backup in a secure
+   credential store. Never paste the key into chat or commit it.
+5. In [desktop → Settings → Secrets and variables → Actions](https://github.com/yehudah/desktop/settings/secrets/actions),
+   add repository **variable** `UPSTREAM_SYNC_APP_CLIENT_ID` with the Client ID and
+   repository **secret** `UPSTREAM_SYNC_APP_PRIVATE_KEY` with the entire PEM,
+   including its BEGIN/END lines. Alternatively, upload it directly from the local
+   file without displaying it:
+
+   ```shell
+   gh variable set UPSTREAM_SYNC_APP_CLIENT_ID --repo yehudah/desktop --body '<Client ID>'
+   gh secret set UPSTREAM_SYNC_APP_PRIVATE_KEY --repo yehudah/desktop < /path/to/downloaded-key.pem
+   ```
+
+   No PAT, client secret, installation ID, or upstream installation is required.
+   Once this workflow is adopted, remove/revoke any obsolete `UPSTREAM_SYNC_TOKEN`
+   previously used solely for synchronization.
+6. After this PR is merged into the default `linux` branch, open **Actions →
+   Upstream release sync → Run workflow** on `linux`. Check the App-token step,
+   `development` update, and generated PR. Require an actual successful run before
+   treating authentication as verified. Branch rules must permit the App's normal
+   fast-forward push to `development` and creation of `upstream-sync/*`; failures
+   remain errors, and the workflow does not bypass or change repository rules.
+
+The official
+[`actions/create-github-app-token`](https://github.com/actions/create-github-app-token)
+action is pinned to a commit, requests only the three write permissions above,
+and explicitly scopes its installation token to `yehudah/desktop`. Tokens expire
+within one hour and are revoked by the action at job completion. Checkout does not
+persist credentials; Git reads the App token through a credential helper only in
+sync steps. No upstream build scripts, dependency installs, submodules, or Git
+hooks run with privileged credentials. Builds execute separately in Linux PR CI
+with a read-only repository token and no App credentials.
+
+### Conflict resolution and recovery
+
+A conflicting PR cannot run `pull_request` CI until its conflicts are resolved.
+Follow the PR's commands: check out its head branch, merge `origin/linux` into it,
+resolve the listed files while preserving Linux behavior, commit, and push back
+to the same head branch without force. This produces a descendant of both the
+release and Linux tips. A maintainer-authenticated push (or App-token push)
+triggers the PR's `synchronize` event; Linux CI listens for it on PRs targeting
+`linux`. Pushes using `GITHUB_TOKEN` do not have the same triggering behavior. See
+[GitHub's event rules](https://docs.github.com/en/actions/concepts/security/github_token).
+
+Repeated runs leave an existing open sync PR and its branch untouched. If pushing
+succeeded but PR creation failed, the next run reuses the branch, preserves any
+maintainer commits, and retries PR creation. A branch with no PR that was deleted
+is recreated. A closed/merged PR whose release is still absent produces an error
+instead of another PR; reopen the original PR or incorporate the release manually
+with a merge commit. An open PR with a missing branch also produces an error.
+
+To restore a deleted head branch without losing the PR's commits, obtain them
+from the PR ref, push them back, then reopen the PR if it was closed (replace the
+number and release tag):
+
+```shell
+git fetch origin pull/<PR-number>/head
+git push origin FETCH_HEAD:refs/heads/upstream-sync/release-X.Y.Z
+gh pr reopen <PR-number> --repo yehudah/desktop
+```
+
+Do not reopen an already merged PR; if it was squashed/rebased, merge the upstream
+tag into `linux` through a reviewed PR to restore the missing ancestry. If
+`development` diverges, inspect both histories and reconcile them manually before
+rerunning. The workflow never repairs divergence destructively. All failed steps
+fail the run and provide setup/recovery guidance in its summary.
 
 Container-based checks live in `script/linux/test/` (installed `.deb` E2E, AppImage payload E2E, protocol handler, keytar, sandbox, package lifecycle). They need the built `dist/` artifacts and Docker.
 
