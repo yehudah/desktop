@@ -1,3 +1,68 @@
+# GitHub Desktop for Linux (unofficial)
+
+> [!IMPORTANT]
+> **This is an unofficial, community-maintained port. It is not affiliated with,
+> endorsed by, or supported by GitHub.** Please don't report problems with these
+> builds to [`desktop/desktop`](https://github.com/desktop/desktop); file them
+> in [this fork's issues](https://github.com/yehudah/desktop/issues) instead.
+
+This fork builds [GitHub Desktop](https://github.com/desktop/desktop) for 64-bit
+Linux, as a `.deb` package and an AppImage. The `linux` branch is upstream's code
+plus a small set of Linux packaging and platform changes. It follows upstream's
+stable releases: a daily workflow proposes each new `release-X.Y.Z` as a pull
+request, and every release is built and tested in CI on Ubuntu 22.04 and 24.04.
+
+## Download
+
+Get the `.deb` (recommended) or the AppImage from
+[Releases](https://github.com/yehudah/desktop/releases). Install and sign-in
+instructions, requirements and known limitations are in
+[docs/linux/README.md](docs/linux/README.md).
+
+- **Tested on:** Ubuntu 22.04, Ubuntu 24.04 and Debian 12, x86_64 only. Other
+  glibc 2.34+ distributions may work.
+- **Versions:** `X.Y.Z-linuxN` means upstream release `X.Y.Z` plus Linux revision
+  `N`. A higher `N` on the same upstream version means Linux-only fixes.
+- **Updates:** there is no auto-update. Install new releases yourself; `apt`
+  upgrades the `.deb` in place.
+- **Verify downloads:** `sha256sum -c GitHubDesktop-linux-*.sha256`.
+
+## Things to know
+
+- **Not an official build.** The packages are not code-signed and have not been
+  reviewed by GitHub. You run them at your own risk; the software is provided
+  "as is", without warranty, under the [MIT license](LICENSE).
+- **Sign-in uses GitHub Desktop's development OAuth app.** These builds don't
+  include GitHub's production OAuth credentials, so the browser sign-in page
+  shows the development application instead of "GitHub Desktop". Your token is
+  stored in your desktop's keyring (Secret Service, e.g. GNOME Keyring or
+  KeePassXC), which must be running and unlocked.
+- **Behavior is upstream's.** Features, UI and bugs that aren't Linux-specific
+  come from upstream. If something also happens on the official macOS or Windows
+  app, it belongs upstream.
+- **Trademarks.** "GitHub", "GitHub Desktop" and the GitHub logos are trademarks
+  of GitHub, Inc. They are used here only to identify the software this port is
+  built from. See the license section below.
+
+## Credits
+
+Based on [GitHub Desktop](https://github.com/desktop/desktop) by GitHub and its
+contributors. Linux support builds on
+[`shiftkey/desktop`](https://github.com/shiftkey/desktop), the long-running
+community Linux fork, whose patches were ported to current upstream releases.
+
+## Contributing to the Linux port
+
+Linux-specific fixes go to the `linux` branch through pull requests; CI must
+pass on both Ubuntu runners. Changes that aren't Linux-specific should go
+[upstream](https://github.com/desktop/desktop/blob/development/.github/CONTRIBUTING.md)
+first. Build instructions, the upstream sync and the release process are in
+[docs/linux/README.md](docs/linux/README.md).
+
+---
+
+_The rest of this file is upstream's README, unchanged._
+
 # [GitHub Desktop](https://desktop.github.com)
 
 [GitHub Desktop](https://desktop.github.com/) is an open-source [Electron](https://www.electronjs.org/)-based
