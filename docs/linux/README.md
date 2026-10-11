@@ -1,6 +1,6 @@
 # GitHub Desktop on Linux (unofficial port)
 
-This branch (`linux`) builds GitHub Desktop 3.6.6 for 64-bit Linux (x86_64 / amd64) as a `.deb` package and an AppImage. It is not an official GitHub release and is not signed or auto-updated.
+This branch (`linux`) builds the current upstream GitHub Desktop release for 64-bit Linux (x86_64 / amd64) as a `.deb` package and an AppImage. It is not an official GitHub release and is not signed or auto-updated.
 
 Supported and tested: Ubuntu 22.04, Ubuntu 24.04 and Debian 12. Other distributions may work.
 
