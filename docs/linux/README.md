@@ -78,6 +78,12 @@ yarn run package       # dist/GitHubDesktop-linux-amd64-<version>.deb and ...x86
 
 CI (`.github/workflows/ci-linux.yml`) does this on Ubuntu 22.04 and 24.04 runners for pushes and pull requests to `linux`, runs the unit and E2E tests under xvfb against the installed `.deb`, checks a natively sandboxed launch and a FUSE AppImage launch, and on tags matching `release-*-linux*` creates a draft release.
 
+## Following upstream releases
+
+`linux` is upstream's code plus the Linux changes; `development` mirrors desktop/desktop and gets no commits of its own. `.github/workflows/upstream-sync.yml` runs daily (or by hand from the Actions tab): it fast-forwards `development` to upstream and, when upstream has a newer `release-X.Y.Z` tag than `linux` contains, opens a PR from `upstream-sync/release-X.Y.Z` into `linux`. A clean merge gets CI (Linux port) on the PR; a conflicting one is opened with the conflicting files listed and the commands to resolve it. The workflow never resolves conflicts or merges; merge the PR yourself, with a merge commit, after CI passes.
+
+It needs a repository secret `UPSTREAM_SYNC_TOKEN`: a fine-grained personal access token for this repository only, with **Contents**, **Pull requests** and **Workflows** set to read and write. `GITHUB_TOKEN` cannot be used, because it cannot push upstream commits that change `.github/workflows`, and PRs it opens do not trigger CI.
+
 Container-based checks live in `script/linux/test/` (installed `.deb` E2E, AppImage payload E2E, protocol handler, keytar, sandbox, package lifecycle). They need the built `dist/` artifacts and Docker.
 
 ## Running the sign-in test
