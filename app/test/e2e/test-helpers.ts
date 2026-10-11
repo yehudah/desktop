@@ -40,6 +40,12 @@ function runGit(args: ReadonlyArray<string>, cwd: string) {
   execFileSync('git', [...args], {
     cwd,
     stdio: 'ignore',
+    // Keep host git config (gpgsign, templates, hooks) out of fixture setup.
+    env: {
+      ...process.env,
+      GIT_CONFIG_GLOBAL: os.devNull,
+      GIT_CONFIG_SYSTEM: os.devNull,
+    },
   })
 }
 
@@ -61,4 +67,25 @@ export function getSmokeRepoHeadMessage() {
 
 export function getSmokeRepoCurrentBranch() {
   return readGitOutput(['branch', '--show-current'], smokeRepoPath)
+}
+
+export function createTempRepository(fileName: string, contents: string) {
+  const repoPath = fs.mkdtempSync(path.join(os.tmpdir(), 'gd-e2e-repo-'))
+
+  runGit(['init'], repoPath)
+  runGit(['config', 'user.name', 'GitHub Desktop E2E'], repoPath)
+  runGit(['config', 'user.email', 'desktop-e2e@example.com'], repoPath)
+  fs.writeFileSync(path.join(repoPath, 'README.md'), '# Functional repo\n')
+  runGit(['add', 'README.md'], repoPath)
+  runGit(['commit', '-m', 'Initial commit'], repoPath)
+
+  // Modify a tracked file and add an untracked one so Changes has two entries.
+  fs.appendFileSync(path.join(repoPath, 'README.md'), 'modified line\n')
+  fs.writeFileSync(path.join(repoPath, fileName), contents)
+
+  return repoPath
+}
+
+export function gitInRepo(repoPath: string, ...args: ReadonlyArray<string>) {
+  return readGitOutput(args, repoPath)
 }
