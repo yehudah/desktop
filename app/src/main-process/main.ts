@@ -105,6 +105,11 @@ function getExtraErrorContext(): Record<string, string> {
 const protocolLauncherArg = '--protocol-launcher'
 
 const possibleProtocols = new Set(['x-github-client'])
+// TODO(linux): Linux release builds are currently built without OAuth secrets,
+// so __DEV_SECRETS__ is true and they register the dev sign-in callback
+// (x-github-desktop-dev-auth) instead of x-github-desktop-auth. A co-installed
+// upstream dev build would claim the same callback. Build releases with real
+// OAuth credentials. See docs/linux/qa-test-plan.md.
 if (__DEV_SECRETS__) {
   possibleProtocols.add('x-github-desktop-dev-auth')
 } else {
