@@ -106,9 +106,9 @@ Manual, black-box QA of the Linux build of GitHub Desktop 3.6.6 (x64). Run on 20
 
 | ID | Severity | Summary |
 | --- | --- | --- |
-| BUG-1 | Medium | Open in Terminal crashes with `Cannot read properties of undefined (reading 'path')` when no supported terminal is installed (Kali/Xfce, QTerminal only). The menu still says "Open in GNOME Terminal". Workaround: custom shell `/usr/bin/qterminal` with arguments `-w %TARGET_PATH%`. |
-| BUG-2 | Low | Help > About > Check for Updates does nothing on Linux (no feedback, no log line). |
-| BUG-3 | Low | Offline fetch shows the raw git `Could not resolve host` text in an oversized error box. Compare with upstream before fixing. |
+| [BUG-1](https://github.com/yehudah/desktop/issues/2) | Medium | Open in Terminal crashes with `Cannot read properties of undefined (reading 'path')` when no supported terminal is installed (Kali/Xfce, QTerminal only). The menu still says "Open in GNOME Terminal". Workaround: custom shell `/usr/bin/qterminal` with arguments `-w %TARGET_PATH%`. |
+| [BUG-2](https://github.com/yehudah/desktop/issues/3) | Low | Help > About > Check for Updates does nothing on Linux (no feedback, no log line). |
+| [BUG-3](https://github.com/yehudah/desktop/issues/4) | Low | Offline fetch shows the raw git `Could not resolve host` text in an oversized error box. Compare with upstream before fixing. |
 
 ## Not covered yet
 
