@@ -70,6 +70,11 @@ jobs:
       - name: Install dependencies
         run: yarn
 
+      # Same check as upstream's CI. yarn 1's --frozen-lockfile misses some drift
+      # (e.g. a rewritten git dependency URL), so install and require no changes.
+      - name: Check lockfiles are up to date
+        run: git diff --exit-code -- yarn.lock app/yarn.lock
+
       - name: Lint
         run: |
           yarn validate-electron-version
