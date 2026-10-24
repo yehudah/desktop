@@ -54,6 +54,7 @@ import {
 import { initializeDesktopNotifications } from './notifications'
 import parseCommandLineArgs from 'minimist'
 import { CLIAction } from '../lib/cli-action'
+import { findAppURLInArgs } from './find-app-url-in-args'
 
 app.setAppLogsPath()
 enableSourceMaps()
@@ -106,6 +107,11 @@ function getExtraErrorContext(): Record<string, string> {
 const protocolLauncherArg = '--protocol-launcher'
 
 const possibleProtocols = new Set(['x-github-client'])
+// TODO(linux): Linux release builds are currently built without OAuth secrets,
+// so __DEV_SECRETS__ is true and they register the dev sign-in callback
+// (x-github-desktop-dev-auth) instead of x-github-desktop-auth. A co-installed
+// upstream dev build would claim the same callback. Build releases with real
+// OAuth credentials. See docs/linux/qa-test-plan.md.
 if (__DEV_SECRETS__) {
   possibleProtocols.add('x-github-desktop-dev-auth')
 } else {
@@ -122,6 +128,16 @@ if (__DARWIN__) {
 // we'll want to set the right App User Model ID from production builds.
 if (__WIN32__ && __DEV__) {
   app.setAppUserModelId('com.squirrel.GitHubDesktop.GitHubDesktop')
+}
+
+// On Linux, associate our windows with the installed desktop entry so that
+// desktop environments show the right name and icon. setDesktopName is a
+// Linux-only Electron API that is missing from Electron's typings.
+if (__LINUX__) {
+  const linuxApp = app as Electron.App & {
+    setDesktopName?: (name: string) => void
+  }
+  linuxApp.setDesktopName?.('github-desktop.desktop')
 }
 
 app.on('window-all-closed', () => {
@@ -289,6 +305,17 @@ async function handleCommandLineArguments(argv: string[]) {
     // If --protocol-launcher is present we always want to bail and not
     // risk a smuggled cli switch
     return
+  }
+
+  // On Linux the desktop entry passes protocol URLs as plain positional
+  // arguments, both on cold start and via the second-instance event.
+  if (__LINUX__) {
+    const url = findAppURLInArgs(argv, possibleProtocols)
+    if (url !== null) {
+      handleAppURL(url)
+      // Same as above, don't process any cli switches alongside an app url
+      return
+    }
   }
 
   if (typeof args['cli-open'] === 'string') {
