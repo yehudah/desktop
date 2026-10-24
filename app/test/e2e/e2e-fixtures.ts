@@ -69,11 +69,48 @@ function getPackagedAppExecutablePath() {
 const e2eAppExecutablePath =
   installedAppExecutablePath ?? getPackagedAppExecutablePath()
 
-function getE2ELaunchOptions() {
+// Docker's default seccomp profile and capabilities stop Chromium's sandbox
+// from starting, so container E2E on Linux runs with --no-sandbox. Sandboxed
+// launch is checked separately (script/linux/test/check-sandbox-launch.sh).
+const sandboxArgs = process.platform === 'linux' ? ['--no-sandbox'] : []
+
+/**
+ * When DESKTOP_E2E_APP_PATH is set the suite must run against exactly that
+ * binary (e.g. an installed package); fail loudly if it is not usable rather
+ * than silently falling back to the staged build.
+ */
+export function assertInstalledAppPath() {
+  if (installedAppExecutablePath === undefined) {
+    return
+  }
+
+  if (installedAppExecutablePath === '') {
+    throw new Error('DESKTOP_E2E_APP_PATH is set but empty.')
+  }
+
+  try {
+    fs.accessSync(installedAppExecutablePath, fs.constants.X_OK)
+  } catch {
+    throw new Error(
+      `DESKTOP_E2E_APP_PATH (${installedAppExecutablePath}) does not exist or is not executable.`
+    )
+  }
+}
+
+export function getE2ELaunchOptions(
+  repoPath = smokeRepoPath,
+  dataDir = userDataDir
+) {
+  assertInstalledAppPath()
+
   if (installedAppExecutablePath !== undefined) {
     return {
       executablePath: installedAppExecutablePath,
-      args: [`--user-data-dir=${userDataDir}`, `--cli-open=${smokeRepoPath}`],
+      args: [
+        ...sandboxArgs,
+        `--user-data-dir=${dataDir}`,
+        `--cli-open=${repoPath}`,
+      ],
       missingPath: installedAppExecutablePath,
     }
   }
@@ -81,9 +118,10 @@ function getE2ELaunchOptions() {
   if (e2eAppMode === 'unpackaged') {
     return {
       args: [
+        ...sandboxArgs,
         unpackagedAppEntryPoint,
-        `--user-data-dir=${userDataDir}`,
-        `--cli-open=${smokeRepoPath}`,
+        `--user-data-dir=${dataDir}`,
+        `--cli-open=${repoPath}`,
       ],
       missingPath: unpackagedAppEntryPoint,
     }
@@ -91,7 +129,11 @@ function getE2ELaunchOptions() {
 
   return {
     executablePath: e2eAppExecutablePath,
-    args: [`--user-data-dir=${userDataDir}`, `--cli-open=${smokeRepoPath}`],
+    args: [
+      ...sandboxArgs,
+      `--user-data-dir=${dataDir}`,
+      `--cli-open=${repoPath}`,
+    ],
     missingPath: e2eAppExecutablePath,
   }
 }
@@ -188,10 +230,16 @@ export const test = base.extend<{}, E2EFixtures>({
           SSH_AUTH_SOCK: '',
           GIT_SSH_COMMAND: 'false',
         },
-        recordVideo: {
-          dir: path.join(projectRoot, 'playwright-videos'),
-          size: { width: 1280, height: 800 },
-        },
+        // Video recording needs Playwright's ffmpeg, which the Linux container
+        // doesn't have; launching with recordVideo hangs there.
+        ...(process.platform === 'linux'
+          ? {}
+          : {
+              recordVideo: {
+                dir: path.join(projectRoot, 'playwright-videos'),
+                size: { width: 1280, height: 800 },
+              },
+            }),
         timeout: 30000,
       })
 

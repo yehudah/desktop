@@ -1,0 +1,14 @@
+#!/bin/sh
+set -e
+
+# Electron's SUID sandbox helper must be root-owned with the setuid bit.
+chown root:root /usr/lib/github-desktop/chrome-sandbox || true
+chmod 4755 /usr/lib/github-desktop/chrome-sandbox || true
+
+# Register the x-github-client / auth URL handlers. This only updates the
+# MIME cache, it never changes a user's default handler.
+if command -v update-desktop-database >/dev/null 2>&1; then
+  update-desktop-database -q /usr/share/applications || true
+fi
+
+exit 0

@@ -178,6 +178,11 @@ test.describe('GitHub Desktop - App Launch', () => {
     await repoFile.waitFor({ state: 'visible', timeout: 15000 })
     await repoFile.click()
 
+    // Optional: save a screenshot of the main window for evidence.
+    if (process.env.DESKTOP_E2E_SCREENSHOT_PATH) {
+      await page.screenshot({ path: process.env.DESKTOP_E2E_SCREENSHOT_PATH })
+    }
+
     // ── Diff ────────────────────────────────────────────────────────
     const diffContainer = page.locator('.diff-container')
     await diffContainer.waitFor({ state: 'visible', timeout: 15000 })
@@ -252,6 +257,10 @@ test.describe('GitHub Desktop - App Launch', () => {
 // ── Auto-update tests ───────────────────────────────────────────────
 
 test.describe('Auto-update', () => {
+  test.skip(
+    process.platform === 'linux',
+    'Auto-update is disabled on Linux by design.'
+  )
   test.skip(
     process.platform === 'win32' && !process.env.DESKTOP_E2E_APP_PATH,
     'Windows auto-update requires an installed Squirrel app, not a packaged app directory.'

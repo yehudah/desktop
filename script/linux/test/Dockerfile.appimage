@@ -1,0 +1,25 @@
+# syntax=docker/dockerfile:1
+# AppImage-payload E2E image (T16): a clean BASE_IMAGE with only test tooling (xvfb, node) and a non-root user.
+# No application packages and no .deb; the AppImage is extracted at run time by run-appimage-e2e.sh.
+# An AppImage does not bundle the host desktop libraries (GTK, NSS, ...); the second RUN installs exactly the
+# library Depends of the .deb (the host-provided runtime), so the payload is the only thing under test.
+ARG BASE_IMAGE=ubuntu:24.04
+FROM ${BASE_IMAGE}
+ENV DEBIAN_FRONTEND=noninteractive
+ARG NODE_VERSION=24.15.0
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    xvfb xauth curl ca-certificates xz-utils git \
+ && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgtk-3-0 libnotify4 libnss3 xdg-utils libatspi2.0-0 libdrm2 libgbm1 libxcb-dri3-0 libsecret-1-0 \
+    libasound2t64 \
+ && rm -rf /var/lib/apt/lists/*
+RUN curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" -o /tmp/node.tar.xz \
+ && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 \
+ && rm /tmp/node.tar.xz
+RUN mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix
+RUN (getent passwd ubuntu >/dev/null && userdel -r ubuntu || true) && useradd -m -u 1000 -s /bin/bash tester
+USER tester
+ENV HOME=/home/tester
+WORKDIR /work
+CMD ["bash"]
