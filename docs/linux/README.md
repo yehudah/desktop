@@ -72,14 +72,14 @@ All commands run on Linux (the repository's `script/linux/run.sh` runs them in D
 
 ```shell
 yarn
-yarn --cwd script/linux install   # electron-builder and electron-installer-debian
+yarn --cwd script/linux install   # electron-builder and electron-installer-debian; also needed by yarn test:script
 yarn build:prod
 yarn run package       # dist/GitHubDesktop-linux-amd64-<version>.deb and ...x86_64-<version>.AppImage, plus .sha256 files
 ```
 
 The Linux packaging dependencies are declared in `script/linux/package.json`, with their own `yarn.lock`, so the root `package.json` and `yarn.lock` stay identical to upstream's and upstream dependency bumps don't conflict with them. Don't add Linux-only dependencies to the root `package.json`.
 
-A `node_modules` installed before this split (including the `gd-linux-node_modules` volume) needs one clean reinstall: yarn 1 keeps the old hoisting, and `yarn run package` then fails with "The requested module 'glob' does not provide an export named 'glob'". Delete `node_modules` (in the container, `script/linux/run.sh bash -c 'find node_modules -mindepth 1 -maxdepth 1 -exec rm -rf {} +'`) and run `yarn` again.
+A `node_modules` installed before this split (including the `gd-linux-node_modules` volume) can keep the old hoisting, because yarn 1 does not repair it. If `yarn run package` then fails with "The requested module 'glob' does not provide an export named 'glob'", delete `node_modules` (in the container, `script/linux/run.sh bash -c 'find node_modules -mindepth 1 -maxdepth 1 -exec rm -rf {} +'`) and run `yarn` again.
 
 CI (`.github/workflows/ci-linux.yml`) does this on Ubuntu 22.04 and 24.04 runners for pushes and pull requests to `linux`, runs the unit and E2E tests under xvfb against the installed `.deb`, checks a natively sandboxed launch and a FUSE AppImage launch, and on tags matching `release-*-linux*` creates a draft release.
 
