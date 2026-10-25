@@ -10,6 +10,7 @@ import {
 } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import { pathToFileURL } from 'url'
 import {
   getDebianInstallerOptions,
   getAppImageBuilderConfig,
@@ -18,6 +19,7 @@ import {
   getLinuxPackageVersion,
   IAppImageParams,
   IDebianInstallerParams,
+  requireLinuxPackagingDep,
   writeSha256File,
 } from '../../package-linux'
 
@@ -203,7 +205,11 @@ describe('electron-installer-debian output for our options', () => {
     // tsx's require hook transpiles the ESM-only package to CJS, where
     // import.meta.dirname is undefined; a real import() keeps it native.
     const importEsm = new Function('m', 'return import(m)')
-    const { Installer } = await importEsm('electron-installer-debian')
+    const { Installer } = await importEsm(
+      pathToFileURL(
+        requireLinuxPackagingDep.resolve('electron-installer-debian')
+      ).href
+    )
     installer = new Installer({
       ...getDebianInstallerOptions({ ...params, src, dest: tmp }),
       logger: () => {},
