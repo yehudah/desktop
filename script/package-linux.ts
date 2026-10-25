@@ -1,6 +1,7 @@
 import { basename, join, resolve } from 'path'
 import { createHash } from 'crypto'
 import { closeSync, existsSync, openSync, readSync, writeFileSync } from 'fs'
+import { createRequire } from 'module'
 import { getReplacements } from '../app/app-info'
 import { getProductName, getVersion } from '../app/package-info'
 import {
@@ -11,6 +12,15 @@ import {
 } from './dist-info'
 
 const projectRoot = resolve(__dirname, '..')
+
+/**
+ * Loads electron-builder and electron-installer-debian. They are declared in
+ * script/linux/package.json (`yarn --cwd script/linux install`), not the root
+ * one, so the root package.json and yarn.lock stay identical to upstream's.
+ */
+export const requireLinuxPackagingDep = createRequire(
+  join(__dirname, 'linux', 'package.json')
+)
 const iconPath = join(projectRoot, 'app', 'static', 'linux', 'icon-logo.png')
 const debianScripts = {
   postinst: join(
@@ -141,8 +151,9 @@ export async function packageDebian(): Promise<string> {
   const dest = getDebianPackagePath()
 
   // electron-installer-debian is ESM-only; Node's require(esm) handles it.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const createInstaller = require('electron-installer-debian').default
+  const createInstaller = requireLinuxPackagingDep(
+    'electron-installer-debian'
+  ).default
 
   await createInstaller(
     getDebianInstallerOptions({
@@ -195,8 +206,7 @@ export function getAppImagePackagePath(output: string, version: string) {
 export async function packageAppImage(): Promise<string> {
   const version = getPackageVersion()
   const output = getDistRoot()
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { build, Platform, Arch } = require('electron-builder')
+  const { build, Platform, Arch } = requireLinuxPackagingDep('electron-builder')
 
   await build({
     targets: Platform.LINUX.createTarget('appimage', Arch.x64),

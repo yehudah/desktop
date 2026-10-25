@@ -72,9 +72,14 @@ All commands run on Linux (the repository's `script/linux/run.sh` runs them in D
 
 ```shell
 yarn
+yarn --cwd script/linux install   # electron-builder and electron-installer-debian; also needed by yarn test:script
 yarn build:prod
 yarn run package       # dist/GitHubDesktop-linux-amd64-<version>.deb and ...x86_64-<version>.AppImage, plus .sha256 files
 ```
+
+The Linux packaging dependencies are declared in `script/linux/package.json`, with their own `yarn.lock`, so the root `package.json` and `yarn.lock` stay identical to upstream's and upstream dependency bumps don't conflict with them. Don't add Linux-only dependencies to the root `package.json`.
+
+A `node_modules` installed before this split (including the `gd-linux-node_modules` volume) can keep the old hoisting, because yarn 1 does not repair it. If `yarn run package` then fails with "The requested module 'glob' does not provide an export named 'glob'", delete `node_modules` (in the container, `script/linux/run.sh bash -c 'find node_modules -mindepth 1 -maxdepth 1 -exec rm -rf {} +'`) and run `yarn` again.
 
 CI (`.github/workflows/ci-linux.yml`) does this on Ubuntu 22.04 and 24.04 runners for pushes and pull requests to `linux`, runs the unit and E2E tests under xvfb against the installed `.deb`, checks a natively sandboxed launch and a FUSE AppImage launch, and on tags matching `release-*-linux*` creates a draft release.
 
@@ -239,9 +244,12 @@ Conflicts seen so far (release-3.6.7, PR #7) and how they were resolved:
 
 - `script/build.ts` imports: upstream adds imports next to the Linux ones
   (`getSHA`, `writeLinuxBuildSha`). Keep both sides.
-- `yarn.lock`: Linux adds `electron-builder` and `electron-installer-debian` to
-  `package.json`, so upstream dependency bumps conflict with them. Don't edit the
-  lockfile by hand or take one side. Leave the conflict markers in place and run
+- `package.json`/`yarn.lock` (3.6.7 and 3.6.8): Linux added `electron-builder`
+  and `electron-installer-debian` to the root `package.json`, so upstream
+  dependency bumps conflicted with them. They now live in
+  `script/linux/package.json` and the root files match upstream, so these
+  conflicts should no longer happen. If a root lockfile conflicts anyway, don't
+  edit it by hand or take one side. Leave the conflict markers in place and run
   `script/linux/run.sh yarn install` (yarn 1 merges a conflicted lockfile
   itself). Then run it again with `--ignore-scripts` and check that `yarn.lock`
   doesn't change, because Linux CI fails on a lockfile that `yarn` rewrites.
@@ -260,9 +268,9 @@ the recipe above becomes:
 2. Resolve source conflicts by keeping both sides' intent, as above. Only edit a
    file without conflicts if the merge breaks it (for example a duplicated or
    missing import).
-3. Resolve `package.json` and `app/package.json` first. Keep upstream's versions
-   and the Linux-only dependencies (`electron-builder`,
-   `electron-installer-debian`).
+3. Resolve `package.json` and `app/package.json` first. Keep upstream's
+   versions. The root `package.json` should match upstream's: the Linux-only
+   dependencies are in `script/linux/package.json`, so don't add them back.
 4. Never edit `yarn.lock` or `app/yarn.lock` by hand. Leave their conflict
    markers and run `yarn install --ignore-scripts`, then
    `yarn --cwd app install --ignore-scripts`. `--ignore-scripts` skips the root

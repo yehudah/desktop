@@ -1,0 +1,10 @@
+{
+  "name": "github-desktop-linux-packaging",
+  "private": true,
+  "description": "Linux packaging dependencies, kept out of the root package.json so it matches upstream",
+  "license": "MIT",
+  "devDependencies": {
+    "electron-builder": "26.0.12",
+    "electron-installer-debian": "4.0.0"
+  }
+}
