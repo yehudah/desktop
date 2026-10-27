@@ -18,6 +18,11 @@ import {
   getDistArchitecture,
   getIconDirectory,
 } from './dist-info'
+import {
+  packageAppImage,
+  packageDebian,
+  writeSha256File,
+} from './package-linux'
 import { isGitHubActions } from './build-platforms'
 import { existsSync, rmSync, writeFileSync } from 'fs'
 import { getVersion } from '../app/package-info'
@@ -40,6 +45,8 @@ if (process.platform === 'darwin') {
   packageOSX()
 } else if (process.platform === 'win32') {
   packageWindows()
+} else if (process.platform === 'linux') {
+  packageLinux()
 } else {
   console.error(`I don't know how to package for ${process.platform} :(`)
   process.exit(1)
@@ -152,6 +159,23 @@ function packageWindows() {
 
         console.log(`Renaming ${from} to ${to}`)
         await rename(from, to)
+      }
+    })
+    .catch(e => {
+      console.error(`Error packaging: ${e}`)
+      process.exit(1)
+    })
+}
+
+function packageLinux() {
+  console.log('Packaging for Linux…')
+  packageDebian()
+    .then(async debPath => {
+      console.log(`Created ${debPath}`)
+      const appImagePath = await packageAppImage()
+      console.log(`Created ${appImagePath}`)
+      for (const f of [debPath, appImagePath]) {
+        console.log(`Created ${writeSha256File(f)}`)
       }
     })
     .catch(e => {

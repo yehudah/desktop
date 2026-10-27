@@ -1,0 +1,281 @@
+name: Upstream release sync
+
+# Only Git/gh and script/linux (which claude.yml never changes) run with the
+# installation token; never install dependencies, run upstream scripts, or
+# initialize submodules here. Linux CI runs separately on PRs.
+# Releases are synced one at a time, oldest first. A conflicting sync PR is handed
+# to Claude (claude.yml) with an @claude comment.
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  # Merging a sync PR proposes the next release, or hands a PR that now
+  # conflicts with the new linux to Claude.
+  push:
+    branches:
+      - linux
+  workflow_dispatch:
+
+# GITHUB_TOKEN checks out and reports failures; the App token has its own scope.
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Sync upstream
+    if: github.repository == 'yehudah/desktop'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_REPO: yehudah/desktop
+      UPSTREAM: https://github.com/desktop/desktop.git
+    steps:
+      - name: Check App configuration
+        env:
+          APP_CLIENT_ID: ${{ vars.UPSTREAM_SYNC_APP_CLIENT_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.UPSTREAM_SYNC_APP_PRIVATE_KEY }}
+        run: |
+          if [ -z "$APP_CLIENT_ID" ] || [ -z "$APP_PRIVATE_KEY" ]; then
+            echo "::error::Set UPSTREAM_SYNC_APP_CLIENT_ID (variable) and UPSTREAM_SYNC_APP_PRIVATE_KEY (secret). See docs/linux/README.md."
+            exit 1
+          fi
+
+      - name: Create installation token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          client-id: ${{ vars.UPSTREAM_SYNC_APP_CLIENT_ID }}
+          private-key: ${{ secrets.UPSTREAM_SYNC_APP_PRIVATE_KEY }}
+          owner: yehudah
+          repositories: desktop
+          permission-contents: write
+          permission-pull-requests: write
+          permission-workflows: write
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: linux
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Configure Git
+        run: |
+          # The helper reads GH_TOKEN from the environment, not a stored token.
+          git config credential.helper ''
+          git config --add credential.helper '!gh auth git-credential'
+          git config core.hooksPath /dev/null
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+      - name: Fast-forward development to upstream
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin development
+          current=$(git rev-parse FETCH_HEAD)
+          git fetch --no-tags "$UPSTREAM" development
+          upstream=$(git rev-parse FETCH_HEAD)
+          if ! git merge-base --is-ancestor "$current" "$upstream"; then
+            echo "::error::development contains commits absent from upstream. Inspect origin/development and upstream/development; reconcile them manually, then rerun. No history was discarded."
+            exit 1
+          fi
+          if [ "$current" != "$upstream" ]; then
+            # A concurrent divergent update or branch protection rejects this push.
+            git push origin "$upstream:refs/heads/development"
+          fi
+
+      # One release at a time: while a sync PR is open, nothing newer is proposed.
+      - name: Find the open sync PR
+        id: open
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          pr=$(gh pr list --state open --base linux --json number,headRefName,url --limit 100 \
+            --jq '[.[] | select(.headRefName | startswith("upstream-sync/"))] | sort_by(.number) | .[0] // empty')
+          if [ -z "$pr" ]; then
+            exit 0
+          fi
+          number=$(jq -r .number <<< "$pr")
+          branch=$(jq -r .headRefName <<< "$pr")
+          url=$(jq -r .url <<< "$pr")
+          if [ -z "$(git ls-remote --heads origin "refs/heads/$branch")" ]; then
+            echo "::error::Sync PR $url has no branch. Restore its original head commit to $branch, or close the PR and decide how to retry; see docs/linux/README.md."
+            exit 1
+          fi
+          echo "Waiting on sync PR $url; leaving maintainer changes intact."
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+
+      - name: Find the next upstream release
+        id: release
+        if: ${{ !steps.open.outputs.number }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags "$UPSTREAM" 'refs/tags/release-*:refs/tags/upstream/release-*'
+          tag=$(script/linux/next-upstream-release.sh origin/linux)
+          if [ -z "$tag" ]; then
+            echo "linux contains every stable upstream release."
+            exit 0
+          fi
+          commit=$(git rev-parse "refs/tags/upstream/$tag^{commit}")
+          branch="upstream-sync/$tag"
+
+          # Check PRs as well as branches: a failed creation is recoverable, but a
+          # maintainer's closed PR must not be silently replaced every day.
+          prs=$(gh pr list --state all --base linux --head "$branch" \
+            --json number,state,url --limit 100)
+          previous_url=$(printf '%s' "$prs" | jq -r '.[0].url // empty')
+          if [ -n "$previous_url" ]; then
+            echo "::error::Previous sync PR $previous_url is closed/merged but linux does not contain $tag. Reopen it (restore its head branch if needed), or incorporate the release manually with a merge commit. See docs/linux/README.md."
+            exit 1
+          fi
+          {
+            echo "tag=$tag"
+            echo "commit=$commit"
+            echo "branch=$branch"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Open pull request
+        id: create
+        if: steps.release.outputs.tag
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+          TAG_COMMIT: ${{ steps.release.outputs.commit }}
+          BRANCH: ${{ steps.release.outputs.branch }}
+        run: |
+          set -euo pipefail
+          # Markdown backticks in the PR text below are literal.
+          candidate="$TAG_COMMIT"
+          remote=$(git ls-remote --heads origin "refs/heads/$BRANCH")
+          if [ -n "$remote" ]; then
+            git fetch --no-tags origin "refs/heads/$BRANCH"
+            candidate=$(git rev-parse FETCH_HEAD)
+            if ! git merge-base --is-ancestor "$TAG_COMMIT" "$candidate"; then
+              echo "::error::$BRANCH does not contain $TAG. Inspect the branch manually; it will not be overwritten."
+              exit 1
+            fi
+          fi
+          git switch --detach origin/linux
+          body_file="$RUNNER_TEMP/upstream-sync-body.md"
+          title="Merge upstream $TAG into linux"
+          if git merge --no-ff --no-edit -m "$title" "$candidate"; then
+            git switch -c "$BRANCH"
+            # shellcheck disable=SC2016
+            printf '@yehudah prepared merge of upstream `%s` (%s) into `linux`.\n\nReview the Linux changes and upstream workflow changes, then merge **with a merge commit** after CI (Linux port) passes. Do not squash or rebase: release ancestry is used to detect incorporation. This automation never merges PRs.\n' \
+              "$TAG" "$TAG_COMMIT" > "$body_file"
+          else
+            conflicts=$(git diff --name-only --diff-filter=U)
+            if [ -z "$conflicts" ]; then
+              echo "::error::Git merge failed without file conflicts. Inspect the Git error above and rerun after correcting it; no sync branch was pushed."
+              exit 1
+            fi
+            git merge --abort
+            # An upstream-only branch exposes the real conflicts to GitHub. A
+            # resolution merging linux into it preserves BOTH histories.
+            git switch -c "$BRANCH" "$candidate"
+            title="$title (conflicts)"
+            {
+              # shellcheck disable=SC2016
+              printf '@yehudah merging upstream `%s` (%s) into `linux` conflicts in:\n\n' "$TAG" "$TAG_COMMIT"
+              # shellcheck disable=SC2016
+              printf '%s\n' "$conflicts" | sed 's/^/- `/; s/$/`/'
+              # shellcheck disable=SC2016
+              printf '\nClaude resolves the conflicts and pushes a merge of `linux` into this branch; you are mentioned when it finishes or fails. To resolve manually instead, preserving Linux functionality and reviewing workflow changes:\n\n```shell\n'
+              printf 'git fetch origin\ngit switch --create resolve-upstream --track origin/%s\n' "$BRANCH"
+              printf 'git merge --no-ff origin/linux\n# Resolve the listed conflicts, then:\ngit add <resolved-files>\ngit commit\ngit push origin HEAD:refs/heads/%s\n```\n' "$BRANCH"
+              printf '\nUse an authenticated maintainer push (or an App token), so the PR synchronize event triggers CI. GitHub does not run pull_request workflows while merge conflicts remain. After all conflicts are resolved, require CI (Linux port) to pass and merge **with a merge commit**, never squash/rebase. The automation never merges PRs.\n'
+            } > "$body_file"
+            echo "::warning::Conflicts found; creating a PR and handing it to Claude."
+            echo "conflicts=true" >> "$GITHUB_OUTPUT"
+          fi
+
+          # Always a normal push; any concurrent divergent changes reject it.
+          git push origin "HEAD:refs/heads/$BRANCH"
+          # The App authors the PR, so yehudah can approve it.
+          url=$(gh pr create --base linux --head "$BRANCH" --title "$title" --body-file "$body_file" \
+            --assignee yehudah --reviewer yehudah)
+          echo "$url"
+          echo "number=${url##*/}" >> "$GITHUB_OUTPUT"
+
+      # The marker records which head and linux commits were handed off, so each
+      # conflict is handed off once, and a failed comment is retried next run.
+      # A PR that starts conflicting after linux moves gets a new handoff.
+      - name: Hand off conflicts to Claude
+        if: steps.open.outputs.number || steps.create.outputs.number
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR: ${{ steps.open.outputs.number || steps.create.outputs.number }}
+          # Set when this run created the PR and saw the conflicts itself.
+          CONFLICTS: ${{ steps.create.outputs.conflicts }}
+        run: |
+          set -euo pipefail
+          # GitHub computes mergeability in the background after a push.
+          for _ in 1 2 3 4 5 6; do
+            state=$(gh pr view "$PR" --json mergeable,headRefOid --jq '"\(.mergeable) \(.headRefOid)"')
+            mergeable=${state% *}
+            head=${state#* }
+            if [ "$mergeable" != UNKNOWN ] || [ "$CONFLICTS" = true ]; then
+              break
+            fi
+            sleep 10
+          done
+          if [ "$CONFLICTS" = true ]; then
+            mergeable=CONFLICTING
+          fi
+          case $mergeable in
+            MERGEABLE)
+              echo "#$PR has no conflicts."
+              exit 0
+              ;;
+            UNKNOWN)
+              echo "::warning::GitHub has not computed whether #$PR conflicts; the next run checks again."
+              exit 0
+              ;;
+          esac
+          linux=$(git ls-remote origin refs/heads/linux | cut -f1)
+          marker="<!-- claude-handoff:$head:$linux -->"
+          bodies=$(gh api --paginate "repos/$GH_REPO/issues/$PR/comments" \
+            --jq '.[] | select(.user.login == "gh-desktop-linux-sync[bot]") | .body')
+          if grep -qF -- "$marker" <<< "$bodies"; then
+            echo "#$PR conflicts; already handed to Claude for ${head:0:9} and linux ${linux:0:9}."
+            exit 0
+          fi
+          # shellcheck disable=SC2016
+          printf '@claude resolve the conflicts between this branch (%s) and `linux` (%s).\n\n%s\n' \
+            "${head:0:9}" "${linux:0:9}" "$marker" > "$RUNNER_TEMP/handoff.md"
+          gh pr comment "$PR" --body-file "$RUNNER_TEMP/handoff.md"
+
+      - name: Report failure
+        if: failure()
+        env:
+          # Not the App token: reporting must work when App authentication fails.
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          echo "::error::Upstream sync failed. Inspect the first failed step: verify App installation/permissions and branch rules, or follow the divergence/PR recovery instructions in docs/linux/README.md. A pushed branch without a PR is reused on the next run."
+          printf 'Upstream sync failed. Inspect the first failed step and [setup/recovery instructions](https://github.com/yehudah/desktop/blob/linux/docs/linux/README.md#following-upstream-releases). No automatic merge or force push is performed.\n' >> "$GITHUB_STEP_SUMMARY"
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          body="@yehudah upstream sync failed: $run_url. See [recovery](https://github.com/yehudah/desktop/blob/linux/docs/linux/README.md#conflict-resolution-and-recovery)."
+          pr=$(gh pr list --state open --base linux --json number,headRefName --limit 100 \
+            --jq '[.[] | select(.headRefName | startswith("upstream-sync/"))] | sort_by(.number) | .[0].number // empty')
+          if [ -n "$pr" ]; then
+            gh pr comment "$pr" --body "$body"
+            exit 0
+          fi
+          title='upstream-sync failing'
+          issue=$(gh issue list --state open --search "in:title \"$title\"" --json number,title \
+            --jq "[.[] | select(.title == \"$title\")][0].number // empty")
+          if [ -n "$issue" ]; then
+            gh issue comment "$issue" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body" --assignee yehudah
+          fi

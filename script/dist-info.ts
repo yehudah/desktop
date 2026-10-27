@@ -26,7 +26,7 @@ export function getExecutableName() {
   if (process.platform === 'win32') {
     return `${getWindowsIdentifierName()}${suffix}`
   } else if (process.platform === 'linux') {
-    return 'desktop'
+    return `github-desktop${suffix}`
   } else {
     return productName
   }
@@ -156,6 +156,13 @@ export function shouldMakeDelta() {
 export function getIconDirectory() {
   const devOrProd = getChannel() === 'development' ? 'dev' : 'prod'
   return join(projectRoot, 'app', 'static', 'logos', devOrProd)
+}
+
+/** Files packaged into resources/ next to the app; Assets.car is macOS-only */
+export function getExtraResources() {
+  return process.platform === 'darwin'
+    ? [join(getIconDirectory(), 'Assets.car')]
+    : []
 }
 
 export function getChannelFromReleaseBranch(): string {

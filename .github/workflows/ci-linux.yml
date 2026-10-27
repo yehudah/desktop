@@ -1,0 +1,217 @@
+name: CI (Linux port)
+
+on:
+  push:
+    branches:
+      - linux
+    tags:
+      - 'release-*-linux*'
+  pull_request:
+    branches:
+      - linux
+
+env:
+  NODE_VERSION: 24.15.0
+
+concurrency:
+  group: ci-linux-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: Linux (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    permissions:
+      contents: read
+    env:
+      # The Dockerfile used for local builds does the same: vendor/printenvz builds with
+      # -Werror -D_FORTIFY_SOURCE=1, and fs-admin's node-addon-api needs C++17.
+      CC: /usr/local/bin/gcc-nofortify
+      CXX: /usr/local/bin/g++-cxx17
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: yarn
+          cache-dependency-path: |
+            yarn.lock
+            app/yarn.lock
+            script/linux/yarn.lock
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          . /etc/os-release
+          sudo apt-get install -y --no-install-recommends \
+            libsecret-1-dev libkrb5-dev xvfb xauth fakeroot dpkg-dev desktop-file-utils \
+            libnotify4 xdg-utils
+          # AppImage (FUSE 2) runtime: libfuse2 + fusermount
+          if [ "$VERSION_ID" = "22.04" ]; then
+            sudo apt-get install -y --no-install-recommends fuse libfuse2
+          else
+            sudo apt-get install -y --no-install-recommends fuse3 libfuse2t64
+          fi
+          printf '#!/bin/sh\nexec /usr/bin/gcc -U_FORTIFY_SOURCE "$@"\n' | sudo tee /usr/local/bin/gcc-nofortify >/dev/null
+          printf '#!/bin/sh\nexec /usr/bin/g++ -U_FORTIFY_SOURCE "$@" -std=gnu++17\n' | sudo tee /usr/local/bin/g++-cxx17 >/dev/null
+          sudo chmod +x /usr/local/bin/gcc-nofortify /usr/local/bin/g++-cxx17
+          sudo mkdir -p /tmp/.X11-unix
+          sudo chmod 1777 /tmp/.X11-unix
+
+      # Linux packaging dependencies (electron-builder, electron-installer-debian)
+      # have their own package.json so the root one matches upstream's.
+      - name: Install dependencies
+        run: |
+          yarn
+          yarn --cwd script/linux install
+
+      # Same check as upstream's CI. yarn 1's --frozen-lockfile misses some drift
+      # (e.g. a rewritten git dependency URL), so install and require no changes.
+      - name: Check lockfiles are up to date
+        run:
+          git diff --exit-code -- yarn.lock app/yarn.lock script/linux/yarn.lock
+
+      - name: Lint
+        run: |
+          yarn validate-electron-version
+          yarn lint
+
+      - name: Unit tests
+        run: yarn test:unit
+
+      - name: Script tests
+        run: yarn test:script
+
+      # NODE_ENV=production is set only for build/package: at install time it would make yarn skip devDependencies.
+      - name: Build (production)
+        env:
+          NODE_ENV: production
+          RELEASE_CHANNEL: production
+        run: yarn build:prod
+
+      - name: Package (.deb and AppImage)
+        env:
+          NODE_ENV: production
+          RELEASE_CHANNEL: production
+          # On release tags the package version becomes X.Y.Z-linuxN.
+          DESKTOP_LINUX_RELEASE_TAG:
+            ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: yarn run package
+
+      - name: Verify artifacts carry this commit
+        run: |
+          set -euo pipefail
+          sha=$(git rev-parse HEAD)
+          cd dist
+          sha256sum -c ./*.sha256
+          deb=$(ls GitHubDesktop-linux-amd64-*.deb)
+          dpkg-deb -I "$deb"
+          dpkg-deb -x "$deb" /tmp/deb-payload
+          grep -qx "$sha" /tmp/deb-payload/usr/lib/github-desktop/resources/app/linux-build-sha ||
+            { echo "linux-build-sha does not match $sha"; exit 1; }
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.os }}
+          path: |
+            dist/GitHubDesktop-linux-*.deb
+            dist/GitHubDesktop-linux-*.AppImage
+            dist/GitHubDesktop-linux-*.sha256
+          if-no-files-found: error
+
+      - name: Install the .deb
+        run: sudo apt-get install -y ./dist/GitHubDesktop-linux-amd64-*.deb
+
+      - name: Native sandboxed launch (user namespaces, no --no-sandbox)
+        run: |
+          sysctl kernel.unprivileged_userns_clone kernel.apparmor_restrict_unprivileged_userns || true
+          xvfb-run -a script/linux/test/check-sandbox-launch.sh
+
+      - name: Native sandboxed launch (setuid chrome-sandbox helper)
+        run:
+          xvfb-run -a script/linux/test/check-sandbox-launch.sh
+          --disable-namespace-sandbox
+
+      - name: Native FUSE AppImage launch
+        run: |
+          xvfb-run -a script/linux/test/check-appimage-fuse-launch.sh \
+            "$(ls dist/GitHubDesktop-linux-x86_64-*.AppImage)"
+
+      - name: Remove the production .deb
+        run: sudo apt-get remove -y github-desktop
+
+      # E2E needs a build with DESKTOP_E2E=1 (local update server URL); the artifacts above are
+      # the production build. This rebuild is for testing only and is not uploaded.
+      - name: Build and package for E2E
+        env:
+          RELEASE_CHANNEL: production
+        run: |
+          yarn test:e2e:build:packaged
+          NODE_ENV=production yarn run package
+
+      - name: Install the E2E .deb
+        run: sudo apt-get install -y ./dist/GitHubDesktop-linux-amd64-*.deb
+
+      - name: E2E against the installed .deb (xvfb)
+        env:
+          DESKTOP_E2E_APP_PATH: /usr/bin/github-desktop
+        run:
+          xvfb-run -a node_modules/.bin/playwright test --config
+          app/test/e2e/playwright.config.ts
+
+      - name: Upload E2E report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report-${{ matrix.os }}
+          path: playwright-videos
+          if-no-files-found: ignore
+
+  release:
+    name: Draft release
+    # Artifacts from the oldest runner: lowest glibc requirement.
+    needs: linux
+    if:
+      startsWith(github.ref, 'refs/tags/release-') && contains(github.ref_name,
+      '-linux')
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-ubuntu-22.04
+          path: dist
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          upstream=${TAG#release-}
+          upstream=${upstream%-linux*}
+          notes="Linux build of GitHub Desktop $upstream (.deb and AppImage).
+
+          Based on upstream [release-$upstream](https://github.com/desktop/desktop/releases/tag/release-$upstream). Install and sign-in notes: [docs/linux/README.md](https://github.com/$GH_REPO/blob/$TAG/docs/linux/README.md)."
+          # A re-run of the tag build replaces the assets of the existing draft.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" --clobber dist/*
+          else
+            gh release create "$TAG" --draft --verify-tag --title "GitHub Desktop $upstream for Linux (${TAG##*-})" \
+              --notes "$notes" dist/*
+          fi

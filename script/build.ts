@@ -48,6 +48,7 @@ import {
   getDistArchitecture,
   getDistRoot,
   getExecutableName,
+  getExtraResources,
   getIconDirectory,
   isPublishable,
 } from './dist-info'
@@ -67,6 +68,8 @@ import { verifyInjectedSassVariables } from './validate-sass/validate-all'
 import { join } from 'path'
 import assert from 'assert'
 import { copyCopilotDependency } from './copilot'
+import { getSHA } from '../app/git-info'
+import { writeLinuxBuildSha } from './linux-build-sha'
 
 const isPublishableBuild = isPublishable()
 const isDevelopmentBuild = getChannel() === 'development'
@@ -134,6 +137,16 @@ verifyInjectedSassVariables(outRoot)
     console.log('Packaging…')
     return packageApp()
   })
+  .then(appPaths => {
+    // Linux artifacts (deb, AppImage) are all checked against the commit the
+    // payload was built from.
+    if (process.platform === 'linux' && !shouldSkipPackaging) {
+      for (const appPath of appPaths) {
+        writeLinuxBuildSha(appPath, getSHA())
+      }
+    }
+    return appPaths
+  })
   .catch(err => {
     console.error(err)
     process.exit(1)
@@ -191,11 +204,10 @@ async function packageApp() {
   }
 
   const iconPath = getIconDirectory()
-  const assetsCarPath = join(iconPath, 'Assets.car')
-  assert(
-    existsSync(assetsCarPath),
-    `Unable to find Assets.car at ${assetsCarPath}`
-  )
+  const extraResource = getExtraResources()
+  for (const resource of extraResource) {
+    assert(existsSync(resource), `Unable to find ${resource}`)
+  }
 
   return packager({
     name: getExecutableName(),
@@ -209,7 +221,7 @@ async function packageApp() {
       iconPath,
       process.platform === 'darwin' ? 'icon-logo-legacy.icns' : 'icon-logo'
     ),
-    extraResource: [assetsCarPath],
+    extraResource,
     dir: outRoot,
     overwrite: true,
     tmpdir: false,
