@@ -182,8 +182,10 @@ jobs:
           if-no-files-found: ignore
 
   release:
-    name: Draft release
-    # Artifacts from the oldest runner: lowest glibc requirement.
+    name: Release
+    # Artifacts from the oldest runner: lowest glibc requirement. `needs: linux`
+    # gates publishing on both matrix legs (22.04 and 24.04) building and passing
+    # their tests.
     needs: linux
     if:
       startsWith(github.ref, 'refs/tags/release-') && contains(github.ref_name,
@@ -215,3 +217,32 @@ jobs:
             gh release create "$TAG" --draft --verify-tag --title "GitHub Desktop $upstream for Linux (${TAG##*-})" \
               --notes "$notes" dist/*
           fi
+      # Assets (.deb, AppImage, .sha256) are attached above, so the release goes
+      # public complete. Idempotent: re-running on a published release is a no-op
+      # apart from the latest flag. Only a version newer than the current latest
+      # becomes latest, so a backfill of an older release cannot take it over.
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          latest=$(gh release view --json tagName --jq .tagName 2>/dev/null || true)
+          newest=$(printf '%s\n%s\n' "${TAG#release-}" "${latest#release-}" | sort -V | tail -n1)
+          if [ -z "$latest" ] || [ "$newest" = "${TAG#release-}" ]; then
+            make_latest=true
+          else
+            make_latest=false
+          fi
+          gh release edit "$TAG" --draft=false --latest="$make_latest"
+          echo "Published $TAG (latest=$make_latest; previous latest: ${latest:-none})." >> "$GITHUB_STEP_SUMMARY"
+      - name: Trigger website deploy
+        env:
+          WEBSITE_DEPLOY_HOOK: ${{ secrets.WEBSITE_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$WEBSITE_DEPLOY_HOOK" ]; then
+            echo "WEBSITE_DEPLOY_HOOK not set; skipping."
+            exit 0
+          fi
+          curl -fsS -X POST "$WEBSITE_DEPLOY_HOOK" >/dev/null

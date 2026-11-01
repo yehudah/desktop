@@ -81,7 +81,7 @@ The Linux packaging dependencies are declared in `script/linux/package.json`, wi
 
 A `node_modules` installed before this split (including the `gd-linux-node_modules` volume) can keep the old hoisting, because yarn 1 does not repair it. If `yarn run package` then fails with "The requested module 'glob' does not provide an export named 'glob'", delete `node_modules` (in the container, `script/linux/run.sh bash -c 'find node_modules -mindepth 1 -maxdepth 1 -exec rm -rf {} +'`) and run `yarn` again.
 
-CI (`.github/workflows/ci-linux.yml`) does this on Ubuntu 22.04 and 24.04 runners for pushes and pull requests to `linux`, runs the unit and E2E tests under xvfb against the installed `.deb`, checks a natively sandboxed launch and a FUSE AppImage launch, and on tags matching `release-*-linux*` creates a draft release.
+CI (`.github/workflows/ci-linux.yml`) does this on Ubuntu 22.04 and 24.04 runners for pushes and pull requests to `linux`, runs the unit and E2E tests under xvfb against the installed `.deb`, checks a natively sandboxed launch and a FUSE AppImage launch, and on tags matching `release-*-linux*` creates and publishes a release.
 
 ## Following upstream releases
 
@@ -323,11 +323,15 @@ merges clean.
   `N`. If the tip already has a Linux release tag, it does nothing.
 
 The tag push runs **CI (Linux port)** on that tag: the full build and tests on
-both runners, then a **draft** release with the ubuntu-22.04 artifacts (lowest
-glibc), `.sha256` files and a link to the upstream release. Install the draft's
-`.deb` and smoke-test it, then edit the release and click **Publish**. If the tag
-build fails, fix it on `linux` and dispatch again; that gives a new `N`. Do not
-move or reuse a tag.
+both runners, then a release with the ubuntu-22.04 artifacts (lowest glibc),
+`.sha256` files and a link to the upstream release. The release is created as a
+draft so the assets are attached before anyone can see it, then published once
+both runners have passed. It is marked **Latest** only when its version is newer
+than the current latest release. If the `WEBSITE_DEPLOY_HOOK` secret is set, the
+job then POSTs to it to rebuild the website. Re-running the job on a published
+release re-uploads the assets and leaves it published. If the tag build fails,
+nothing is published: fix it on `linux` and dispatch again; that gives a new
+`N`. Do not move or reuse a tag.
 
 The tagging workflow pushes the tag with the sync App's token, because a tag
 pushed with `GITHUB_TOKEN` would not trigger CI. The tag logic is in
